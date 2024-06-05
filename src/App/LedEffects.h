@@ -1943,6 +1943,68 @@ class SphereMoveEffect: public Effect {
   }
 }; // SphereMove3DEffect
 
+/*
+#define unsigned8 uint8_t
+#define unsigned16 uint16_t
+#define unsigned32 unsigned
+#define forUnsigned8 unsigned
+#define forUnsigned16 unsigned
+#define stackUnsigned8 uint8_t //unsigned causes some effects to run faulty. tbd to find out
+#define stackUnsigned16 unsigned
+#define stackUnsigned32 unsigned
+*/
+class ExampleEffect: public Effect {
+public:
+  const char * name() {return "ExampleEffect";}
+  uint8_t dim() {return _2D;}
+  const char * tags() {return "♪♫⚡💡💫";}
+
+  struct Map_t {
+    uint8_t angle;
+    uint8_t radius;
+  };
+
+  void setup(Leds &leds) {
+    leds.fill_solid(CRGB::Black);
+  }
+
+  void loop(Leds &leds) {
+    //Binding of controls. Keep before binding of vars and keep in same order as in controls()
+    uint8_t speed = leds.sharedData.read<uint8_t>();
+    uint8_t legs = leds.sharedData.read<uint8_t>();
+    Coord3D testCoord3D = leds.sharedData.read<Coord3D>();
+
+    //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
+    Map_t    *rMap = leds.sharedData.readWrite<Map_t>(leds.size.x * leds.size.y); //array
+    uint8_t *offsX = leds.sharedData.readWrite<uint8_t>();
+    uint16_t *aux0 = leds.sharedData.readWrite<uint16_t>();
+    unsigned long *step = leds.sharedData.readWrite<unsigned long>();
+
+    unsigned long beatTimer = sys->now - *step;
+
+    Coord3D pos = {0,0,0};
+
+    for (pos.x = 0; pos.x < leds.size.x; pos.x++) {
+      for (pos.y = 0; pos.y < leds.size.y; pos.y++) {
+        CRGB color = ColorFromPalette(leds.palette, random8());
+        leds[pos] = color; // or setPixelColor(pos, color);
+      }
+    }
+    if (leds.projectionDimension == _3D)
+      //do something special for 3D projections/fixtures
+      if (!leds.isMapped(leds.XYZ(1,2,3)))
+        //do something special if there is no physical led in the current projection
+        ppf("test %d\n", beatTimer);
+  }
+
+  void controls(Leds &leds, JsonObject parentVar) {
+    Effect::controls(leds, parentVar);
+    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128), 1, 255);
+    ui->initSlider(parentVar, "legs", leds.sharedData.write<uint8_t>(4), 1, 8);
+    ui->initCoord3D(parentVar, "testCoord3D", leds.sharedData.write<Coord3D>({1,2,3}));
+  }
+}; // ExampleEffect
+
 class Effects {
 public:
   std::vector<Effect *> effects;
@@ -1980,6 +2042,7 @@ public:
 
     //2D StarLeds
     effects.push_back(new Lines);
+    effects.push_back(new ExampleEffect);
     //2D WLED
     effects.push_back(new BlackHole);
     effects.push_back(new DNA);
