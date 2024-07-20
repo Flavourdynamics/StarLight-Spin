@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModUI.h
-   @date      20240227
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -14,14 +14,14 @@
 #include "SysModPrint.h"
 #include "SysModModel.h"
 
-enum FunIDs
+enum FunTypes
 {
-  f_ValueFun,
-  f_UIFun,
-  f_ChangeFun,
-  f_LoopFun,
-  f_AddRow,
-  f_DelRow,
+  onSetValue,
+  onUI,
+  onChange,
+  onLoop,
+  onAddRow,
+  onDeleteRow,
   f_count
 };
 
@@ -45,7 +45,7 @@ public:
   //serve index.htm
   void setup();
 
-  void loop();
+  void loop20ms();
   void loop1s();
 
   //order: order%4 determines the column (WIP)
@@ -73,8 +73,8 @@ public:
     return initVarAndUpdate<const char *>(parent, id, "text", value, 0, max, readOnly, varFun);
   }
 
-  JsonObject initFile(JsonObject parent, const char * id, const char * value = nullptr, unsigned16 max = 32, bool readOnly = false, VarFun varFun = nullptr) {
-    return initVarAndUpdate<const char *>(parent, id, "file", value, 0, max, readOnly, varFun);
+  JsonObject initFileUpload(JsonObject parent, const char * id, const char * value = nullptr, unsigned16 max = 32, bool readOnly = false, VarFun varFun = nullptr) {
+    return initVarAndUpdate<const char *>(parent, id, "fileUpload", value, 0, max, readOnly, varFun);
   }
   JsonObject initPassword(JsonObject parent, const char * id, const char * value = nullptr, unsigned8 max = 32, bool readOnly = false, VarFun varFun = nullptr) {
     return initVarAndUpdate<const char *>(parent, id, "password", value, 0, max, readOnly, varFun);
@@ -148,6 +148,10 @@ public:
     return initVarAndUpdate<const char *>(parent, id, "textarea", value, 0, 0, readOnly, varFun);
   }
 
+  JsonObject initFileEdit(JsonObject parent, const char * id, const char * value = nullptr, bool readOnly = false, VarFun varFun = nullptr) {
+    return initVarAndUpdate<const char *>(parent, id, "fileEdit", value, 0, 0, readOnly, varFun);
+  }
+
   JsonObject initURL(JsonObject parent, const char * id, const char * value = nullptr, bool readOnly = false, VarFun varFun = nullptr) {
     return initVarAndUpdate<const char *>(parent, id, "url", value, 0, 0, readOnly, varFun);
   }
@@ -189,30 +193,30 @@ public:
     }
 
     if (valueNeedsUpdate) {
-      bool valueFunExists = false;
+      bool onSetValueExists = false;
       if (varFun) {
-        valueFunExists = varFun(var, mdl->setValueRowNr, f_ValueFun);
+        onSetValueExists = varFun(var, mdl->setValueRowNr, onSetValue);
       }
-      if (!valueFunExists) { //setValue provided (if not null)
-        mdl->setValue(var, value, mdl->setValueRowNr); //does changefun if needed, if var in table, update the table row
+      if (!onSetValueExists) { //setValue provided (if not null)
+        mdl->setValue(var, value, mdl->setValueRowNr); //does onChange if needed, if var in table, update the table row
       }
     }
-    else { //do changeFun on existing value
-      //no call of chFun for buttons otherwise all buttons will be fired which is highly undesirable
+    else { //do onChange on existing value
+      //no call of onChange for buttons otherwise all buttons will be fired which is highly undesirable
       if (strcmp(type,"button") != 0 && varFun ) { //!isPointer because 0 is also a value then && (!isPointer || value)
-        bool changeFunExists = false;
+        bool onChangeExists = false;
         if (var["value"].is<JsonArray>()) {
           int rowNr = 0;
           for (JsonVariant val:var["value"].as<JsonArray>()) {
-            changeFunExists |= mdl->callVarChangeFun(var, rowNr++, true); //init, also set var["p"]
+            onChangeExists |= mdl->callVarChangeFun(var, rowNr++, true); //init, also set var["p"]
           }
         }
         else {
-          changeFunExists = mdl->callVarChangeFun(var, UINT8_MAX, true); //init, also set var["p"]
+          onChangeExists = mdl->callVarChangeFun(var, UINT8_MAX, true); //init, also set var["p"]
         }
 
-        if (changeFunExists)
-          ppf("initVarAndUpdate chFun init %s[x] <- %s\n", mdl->varID(var), var["value"].as<String>().c_str());
+        if (onChangeExists)
+          ppf("initVarAndUpdate onChange init %s[x] <- %s\n", mdl->varID(var), var["value"].as<String>().c_str());
       }
     }
 
@@ -221,14 +225,14 @@ public:
 
   JsonObject initVar(JsonObject parent, const char * id, const char * type, bool readOnly = true, VarFun varFun = nullptr);
 
-  //checks if var has fun of type funType implemented by calling it and checking result (for uiFun on RO var, also valueFun is called)
-  bool callVarFun(const char * varID, unsigned8 rowNr = UINT8_MAX, unsigned8 funType = f_ValueFun) {
+  //checks if var has fun of type funType implemented by calling it and checking result (for onUI on RO var, also onSetValue is called)
+  bool callVarFun(const char * varID, unsigned8 rowNr = UINT8_MAX, unsigned8 funType = onSetValue) {
     JsonObject var = mdl->findVar(varID);
     return callVarFun(var, rowNr, funType);
   }
 
-  //checks if var has fun of type funType implemented by calling it and checking result (for uiFun on RO var, also valueFun is called)
-  bool callVarFun(JsonObject var, unsigned8 rowNr = UINT8_MAX, unsigned8 funType = f_ValueFun) {
+  //checks if var has fun of type funType implemented by calling it and checking result (for onUI on RO var, also onSetValue is called)
+  bool callVarFun(JsonObject var, unsigned8 rowNr = UINT8_MAX, unsigned8 funType = onSetValue) {
     bool result = false;
 
     if (!var["fun"].isNull()) {//isNull needed here!
@@ -236,18 +240,18 @@ public:
       if (funNr < varFunctions.size()) {
         result = varFunctions[funNr](var, rowNr, funType);
         if (result && !mdl->varRO(var)) { //send rowNr = 0 if no rowNr
-          //only print vars with a value and not valuefun as that changes a lot due to insTbl clTbl etc (tbd)
+          //only print vars with a value and not onSetValue as that changes a lot due to insTbl clTbl etc (tbd)
           // if (!var["value"].isNull() && 
-          if (funType != f_ValueFun) {
-            ppf("%sFun %s", funType==f_ValueFun?"val":funType==f_UIFun?"ui":funType==f_ChangeFun?"ch":funType==f_AddRow?"add":funType==f_DelRow?"del":"other", mdl->varID(var));
+          if (funType != onSetValue) {
+            ppf("%sFun %s", funType==onSetValue?"val":funType==onUI?"ui":funType==onChange?"ch":funType==onAddRow?"add":funType==onDeleteRow?"del":"other", mdl->varID(var));
             if (rowNr != UINT8_MAX) {
               ppf("[%d] (", rowNr);
-              if (funType == f_ChangeFun) ppf("%s ->", var["oldValue"][rowNr].as<String>().c_str());
+              if (funType == onChange) ppf("%s ->", var["oldValue"][rowNr].as<String>().c_str());
               ppf("%s)\n", var["value"][rowNr].as<String>().c_str());
             }
             else {
               ppf(" (");
-              if (funType == f_ChangeFun) ppf("%s ->", var["oldValue"].as<String>().c_str());
+              if (funType == onChange) ppf("%s ->", var["oldValue"].as<String>().c_str());
               ppf("%s)\n", var["value"].as<String>().c_str());
             }
           }
@@ -257,15 +261,15 @@ public:
         ppf("dev callVarFun function nr %s outside bounds %d >= %d\n", mdl->varID(var), funNr, varFunctions.size());
     }
 
-    //for ro variables, call valueFun to add also the value in responseDoc (as it is not stored in the model)
-    if (funType == f_UIFun && mdl->varRO(var)) {
-      callVarFun(var, rowNr, f_ValueFun);
+    //for ro variables, call onSetValue to add also the value in responseDoc (as it is not stored in the model)
+    if (funType == onUI && mdl->varRO(var)) {
+      callVarFun(var, rowNr, onSetValue);
     }
 
     return result;
   }
 
-  // assuming callVarFun(varID, UINT8_MAX, f_UIFun); has been called before
+  // assuming callVarFun(varID, UINT8_MAX, onUI); has been called before
   uint8_t selectOptionToValue(const char *varID, const char *label) {
     JsonArray options = web->getResponseObject()[varID]["options"];
     // ppf("selectOptionToValue fileName %s %s\n", label, options[0].as<String>().c_str());
@@ -283,7 +287,7 @@ public:
   void processJson(JsonVariant json); //must be Variant, not object for jsonhandler
 
   //called to rebuild selects and tables (tbd: also label and comments is done again, that is not needed)
-  // void processUiFun(const char * id);
+  // void processOnUI(const char * id);
 
   void setLabel(JsonObject var, const char * text) {
     web->addResponse(var["id"], "label", text);
@@ -294,9 +298,9 @@ public:
   JsonArray setOptions(JsonObject var) {
     return web->addResponseA(var["id"], "options");
   }
-  //return the options from valueFun (don't forget to clear responseObject)
+  //return the options from onUI (don't forget to clear responseObject)
   JsonArray getOptions(JsonObject var) {
-    callVarFun(var, UINT8_MAX, f_UIFun); //rebuild options
+    callVarFun(var, UINT8_MAX, onUI); //rebuild options
     return web->getResponseObject()[mdl->varID(var)]["options"];
   }
   void clearOptions(JsonObject var) {

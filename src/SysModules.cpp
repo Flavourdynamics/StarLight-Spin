@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModules.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -35,7 +35,7 @@ void SysModules::setup() {
   JsonObject parentVar = ui->initSysMod(parentVar, "Modules", 4203);
 
   JsonObject tableVar = ui->initTable(parentVar, "mdlTbl", nullptr, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Modules");
       ui->setComment(var, "List of modules");
       return true;
@@ -43,11 +43,11 @@ void SysModules::setup() {
   }});
 
   ui->initText(tableVar, "mdlName", nullptr, 32, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
+    case onSetValue:
       for (forUnsigned8 rowNr = 0; rowNr < modules.size(); rowNr++)
         mdl->setValue(var, JsonString(modules[rowNr]->name, JsonString::Copied), rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Name");
       return true;
     default: return false;
@@ -55,28 +55,28 @@ void SysModules::setup() {
 
   //UINT16_MAX: no value set
   ui->initCheckBox(tableVar, "mdlSuccess", UINT16_MAX, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
+    case onSetValue:
       for (forUnsigned8 rowNr = 0; rowNr < modules.size(); rowNr++)
         mdl->setValue(var, modules[rowNr]->success, rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Success");
       return true;
     default: return false;
   }});
 
   ui->initCheckBox(tableVar, "mdlEnabled", UINT16_MAX, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun not readonly! (tbd)
-    case f_ValueFun:
+    case onSetValue:
       //never a rowNr as parameter, set all
       //execute only if var has not been set
       for (forUnsigned8 rowNr = 0; rowNr < modules.size(); rowNr++)
         mdl->setValue(var, modules[rowNr]->isEnabled, rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       //initially set to true, but as enabled are table cells, will be updated to an array
       ui->setLabel(var, "Enabled");
       return true;
-    case f_ChangeFun:
+    case onChange:
       if (rowNr != UINT8_MAX && rowNr < modules.size()) {
         modules[rowNr]->isEnabled = mdl->getValue(var, rowNr);
         modules[rowNr]->enabledChanged();
@@ -92,7 +92,7 @@ void SysModules::setup() {
 
 void SysModules::loop() {
   // bool oneSec = false;
-  bool tenSec = false;
+  // bool tenSec = false;
   // if (millis() - oneSecondMillis >= 1000) {
   //   oneSecondMillis = millis();
   //   oneSec = true;
@@ -104,6 +104,10 @@ void SysModules::loop() {
   for (SysModule *module:modules) {
     if (module->isEnabled && module->success) {
       module->loop();
+      if (millis() - module->twentyMsMillis >= 20) {
+        module->twentyMsMillis = millis();
+        module->loop20ms();
+      }
       if (millis() - module->oneSecondMillis >= 1000) {
         module->oneSecondMillis = millis();
         module->loop1s();

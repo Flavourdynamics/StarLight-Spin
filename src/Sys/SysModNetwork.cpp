@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModNetwork.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -34,17 +34,17 @@ void SysModNetwork::setup() {
   ui->initText(parentVar, "ssid", "", 31, false);
 
   ui->initPassword(parentVar, "pw", "", 63, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Password");
       return true;
     default: return false;
   }});
 
   ui->initButton(parentVar, "connect", false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    // case f_UIFun:
+    // case onUI:
     //   ui->setComment(var, "Force reconnect (loose current connection)");
     //   return true;
-    case f_ChangeFun:
+    case onChange:
       // mdl->doWriteModel = true; //saves the model
       initConnection(); //try to connect
       return true;
@@ -52,14 +52,14 @@ void SysModNetwork::setup() {
   }});
 
   ui->initText(parentVar, "nwstatus", nullptr, 32, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Status");
       return true;
     default: return false;
   }});
 
   ui->initText(parentVar, "rssi", nullptr, 32, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Wifi signal");
       return true;
     default: return false;

@@ -1,6 +1,6 @@
 // @title     StarBase
 // @file      index.css
-// @date      20240411
+// @date      20240720
 // @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
 // @Authors   https://github.com/ewowi/StarBase/commits/main
 // @Copyright © 2024 Github StarBase Commit Authors
@@ -12,7 +12,7 @@ let ws = null;
 
 let nrOfMdlColumns = 4;
 let jsonValues = {};
-let uiFunCommands = [];
+let onUICommands = [];
 let model = []; //model.json (as send by the server), used by FindVar
 let savedView = null;
 
@@ -54,6 +54,7 @@ function ppf() {
   let logNode = gId("log");
   let sep = "";
   if (logNode) {
+    // console.log("logNode", logNode);
     if (logNode.value.length > 64000) logNode.value = ""; //reset if too big
     // console.log("conslog", theArgs);
     for (var i = 0; i < arguments.length; i++) {
@@ -139,8 +140,8 @@ function makeWS() {
 
             gId("vApp").value = appName(); //tbd: should be set by server
 
-            //send request for uiFun
-            flushUIFunCommands();
+            //send request for onUI
+            flushOnUICommands();
           }
           else
             console.log("html of module already generated", json);
@@ -239,10 +240,10 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
     let labelNode = cE("label");
     let parentVar = findParentVar(variable.id);
     if (parentVar && variable.id != parentVar.id && parentVar.id && variable.id.substring(0, parentVar.id.length) == parentVar.id) { // if parent id is beginning of the name of the child id then remove that part
-      labelNode.innerText = initCap(variable.id.substring(parentVar.id.length)); // the default when not overridden by uiFun
+      labelNode.innerText = initCap(variable.id.substring(parentVar.id.length)); // the default when not overridden by onUI
     }
     else
-      labelNode.innerText = initCap(variable.id); // the default when not overridden by uiFun
+      labelNode.innerText = initCap(variable.id); // the default when not overridden by onUI
     
     divNode = cE("div");
     divNode.id = variable.id + (rowNr != UINT8_MAX?"#" + rowNr:"") + "_d";
@@ -327,7 +328,7 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
       // console.log("tableChild", parentNode, variable);
 
       varNode = cE("th");
-      varNode.innerText = initCap(variable.id); //label uiFun response can change it
+      varNode.innerText = initCap(variable.id); //label onUI response can change it
 
     } else if (variable.type == "select" || variable.type == "pin" || variable.type == "ip") {
 
@@ -369,6 +370,61 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
       varNode.rows = 10;
       varNode.readOnly = variable.ro;
       varNode.addEventListener('dblclick', (event) => {toggleModal(event.target);});
+    } else if (variable.type == "fileEdit") {
+
+      varNode = cE("input");
+      varNode.type = "button";
+      varNode.disabled = variable.ro;
+      varNode.value = "🔍"; //initial label, button.value is the label shown on the button
+      varNode.addEventListener('click', (event) => {
+        let url = `http://${window.location.hostname}/file/`;
+        console.log("fileEdit event.target", event.target, url, varNode.getAttribute("fName"));
+        fetchAndExecute(url, varNode.getAttribute("fName"), event.target, function(varNode, text) { //send node.id as parameter
+          // console.log("fetchAndExecute", text); //in case of invalid commandJson
+          console.log("fileEdit fetched", varNode.getAttribute("fName"), text);
+
+          //removeChild
+          let modalView = gId('modalView');
+
+          if (modalView) {
+            //delete old nodes
+            while (modalView.firstChild) {
+              modalView.removeChild(modalView.lastChild);
+            }
+
+            let h1Node = cE("h1");
+            h1Node.innerText = "Edit " + varNode.getAttribute("fName");
+            modalView.appendChild(h1Node);
+
+            //cancel
+            let cancelButtonNode = cE("input");
+            cancelButtonNode.type = "button";
+            cancelButtonNode.value = "cancel";
+            cancelButtonNode.addEventListener('click', (event) => {
+              modalView.style.transform = (false) ? "translateY(0px)":"translateY(100%)";
+            });
+            modalView.appendChild(cancelButtonNode);
+  
+            let textAreaNode = cE("textarea");
+
+            //save
+            let saveButtonNode = cE("input");
+            saveButtonNode.type = "button";
+            saveButtonNode.value = "save";
+            saveButtonNode.addEventListener('click', (event) => {
+              console.log("fileEdit save", varNode.getAttribute("fName"), textAreaNode);
+              uploadFileWithText("/" + varNode.getAttribute("fName"), textAreaNode.value);
+              modalView.style.transform = (false) ? "translateY(0px)":"translateY(100%)";
+            });
+            modalView.appendChild(saveButtonNode);
+  
+            textAreaNode.value = text;
+            // varNode.rows = 10;
+            modalView.appendChild(textAreaNode);
+            modalView.style.transform = (true) ? "translateY(0px)":"translateY(100%)";
+          }
+        }); 
+      });
     }
     else if (variable.type == "url") {
       varNode = cE("a");
@@ -377,7 +433,7 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
       varNode = cE("label");
       if (parentNodeType != "td") {
         let spanNode = cE("span");
-        spanNode.innerText = initCap(variable.id) + " "; // the default when not overridden by uiFun
+        spanNode.innerText = initCap(variable.id) + " "; // the default when not overridden by onUI
         varNode.appendChild(spanNode);
       }
       let inputNode = cE("input");
@@ -441,18 +497,18 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
       varNode = cE("progress");
       varNode.min = variable.min?variable.min:0; //if not specified then unsigned value (min=0)
       if (variable.max) varNode.max = variable.max;
-    } else if (variable.type == "file") {
+    } else if (variable.type == "fileUpload") {
       //https://github.com/smford/esp32-asyncwebserver-fileupload-example/blob/master/example-01/example-01.ino
 
       varNode = cE("span");
 
       inputNode = cE("input");
-      inputNode.type = variable.type;
+      inputNode.type = "file";
       inputNode.addEventListener('change', (event) => {
         let fileNode = event.target;
         let file = fileNode.files[0];
         let formData = new FormData();
-        console.log("file " + variable.id, file, formData, file.size);
+        console.log("fileUpload " + variable.id, file, formData, file.size);
         fileNode.parentNode.querySelector("progress").max = Math.round(file.size / 10000); //set progress max in blocks of 10K
              
         formData.append("file", file);
@@ -528,12 +584,19 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
         createHTML(variable.n, varNode, rowNr); //details (e.g. module)
     }
 
-    //don't call uiFun on table rows (the table header calls uiFun and propagate this to table row columns in changeHTML when needed - e.g. select)
+    //add a th for the delete button
+    if (variable.type == "table" && !variable.ro) {
+      thNode = cE("th");
+      thNode.innerText = "-";
+      varNode.querySelector('thead').querySelector("tr").appendChild(thNode);
+    }
+
+    //don't call onUI on table rows (the table header calls onUI and propagate this to table row columns in changeHTML when needed - e.g. select)
     if (variable.fun == null || variable.fun == -2) { //request processed
       variable.chk = "gen2";
       changeHTML(variable, variable, rowNr); // set the variable with its own changed values
     }
-    else { //uiFun
+    else { //onUI
       if (variable.value)
         changeHTML(variable, {"value":variable.value, "chk":"gen1"}, rowNr); //set only the value
 
@@ -542,9 +605,9 @@ function createHTML(json, parentNode = null, rowNr = UINT8_MAX) {
 
       //call ui Functionality, if defined (to set label, comment, select etc)
       if (variable.fun >= 0) { //>=0 as element in var
-        uiFunCommands.push(variable.id);
-        if (uiFunCommands.length > 4) { //every 4 vars (to respect responseDoc size) check WS_EVT_DATA info
-          flushUIFunCommands();
+        onUICommands.push(variable.id);
+        if (onUICommands.length > 4) { //every 4 vars (to respect responseDoc size) check WS_EVT_DATA info
+          flushOnUICommands();
         }
         variable.fun = -1; //requested
       }
@@ -587,7 +650,7 @@ function genTableRowHTML(json, parentNode = null, rowNr = UINT8_MAX) {
     tdNode.appendChild(buttonNode);
     trNode.appendChild(tdNode);
   }
-  flushUIFunCommands();
+  flushOnUICommands();
   if (variable.id == "insTbl")
     setInstanceTableColumns();
 }
@@ -614,7 +677,7 @@ function receiveData(json) {
       //tbd: for each node of a variable (rowNr)
 
       //special commands
-      if (key == "uiFun") {
+      if (key == "onUI") {
         ppf("receiveData no action", key, value); //should not happen anymore
       }
       else if (key == "view") {
@@ -631,7 +694,7 @@ function receiveData(json) {
         let variable = value.var;
         let rowNr = value.rowNr == null?UINT8_MAX:value.rowNr;
         let nodeId = variable.id + ((rowNr != UINT8_MAX)?"#" + rowNr:"");
-        //if var object with .n, create .n (e.g. see fx.changefun (setEffect) and fixtureGenChFun, tbd: )
+        //if var object with .n, create .n (e.g. see fx.onChange (setEffect) and fixtureGenonChange, tbd: )
         ppf("receiveData details", key, variable.id, nodeId, rowNr);
         if (gId(nodeId + "_n")) gId(nodeId + "_n").remove(); //remove old ndiv
 
@@ -646,7 +709,7 @@ function receiveData(json) {
           gId(nodeId).parentNode.appendChild(ndivNode);
           createHTML(modelVar.n, ndivNode, rowNr);
         }
-        flushUIFunCommands(); //make sure uiFuns of new elements are called
+        flushOnUICommands(); //make sure onUIs of new elements are called
       }
       else if (key == "addRow") { //update the row of a table
         ppf("receiveData", key, value);
@@ -712,11 +775,11 @@ function receiveData(json) {
 
         if (variable) {
           let rowNr = value.rowNr == null?UINT8_MAX:value.rowNr;
-          // if (variable.id == "fxEnd" || variable.id == "fxSize" || variable.id == "point")
+          // if (variable.id == "ledsEnd" || variable.id == "ledsSize" || variable.id == "point")
           //   ppf("receiveData ", variable, value);
           variable.fun = -2; // request processed
 
-          value.chk = "uiFun";
+          value.chk = "onUI";
           changeHTML(variable, value, rowNr); //changeHTML will find the rownumbers if needed
         }
         else
@@ -893,7 +956,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
       if (Array.isArray(commandJson.value)) {
         console.log("changeHTML value table", variable, node, commandJson, rowNr);
         //remove table rows
-        let tbodyNode = cE('tbody'); //the tbody of node will be replaced
+        let tbodyNode = cE("tbody"); //the tbody of node will be replaced
         //replace the table body
         node.replaceChild(tbodyNode, node.querySelector("tbody")); //replace <table><tbody> by tbodyNode  //add to dom asap
 
@@ -912,7 +975,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
           newRowNr++;
         }
 
-        flushUIFunCommands(); //make sure uiFuns of new elements are called
+        flushOnUICommands(); //make sure onUIs of new elements are called
 
         if (variable.id == "insTbl")
           setInstanceTableColumns();
@@ -958,7 +1021,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
           changeHTML(variable, {"value":null, "chk":"column"}, newRowNr); //new row cell has no value
       }
 
-      flushUIFunCommands(); //make sure uiFuns of new elements are called
+      flushOnUICommands(); //make sure onUIs of new elements are called
 
     }
     else if (node.parentNode.parentNode.nodeName.toLocaleLowerCase() == "td" && Array.isArray(commandJson.value)) { //table column, called for each column cell!!!
@@ -1033,7 +1096,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
     else if (node.className == "select" || node.className == "pin" || node.className == "ip") {
       if (variable.ro) {
         var index = 0;
-        if (variable.options && commandJson.value != null) { // not always the case e.g. data / table / uiFun. Then value set if uiFun returns
+        if (variable.options && commandJson.value != null) { // not always the case e.g. data / table / onUI. Then value set if onUI returns
           for (var value of variable.options) {
             if (parseInt(commandJson.value) == index) {
               // console.log("changeHTML select1", value, node, node.textContent, index);
@@ -1052,7 +1115,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
           node.value = commandJson.value;
       }
     }
-    else if (node.className == "file") {
+    else if (node.className == "fileUpload") {
       if (variable.ro) { //text and numbers read only
         // console.log("changeHTML value span not select", variable, node, commandJson, rowNr);
       } else {
@@ -1064,7 +1127,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
           progressNode.hidden = true;
           spanNode.innerText = "🟢";
           inputNode.value = null;
-          console.log("succes");
+          console.log("fileUpload succes");
         }
         else if (commandJson.value == UINT16_MAX - 20) {
           progressNode.hidden = true;
@@ -1082,6 +1145,13 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
     } else if (node.className == "textarea") {
       node.value += commandJson.value;
       node.scrollTop = node.scrollHeight;
+    } else if (node.className == "fileEdit") {
+      let value = commandJson.value;
+      // console.log("change button", variable, node, value);
+      if (Array.isArray(commandJson.value) && rowNr != UINT8_MAX) {
+        value = commandJson.value[rowNr];
+      }
+      if (value) node.setAttribute('fName', value); //don't change the value / prompt of the button
     } else {//inputs and progress type
       if (variable.ro && nodeType == "span") { //text and numbers read only
         // console.log("changeHTML value span not select", variable, node, commandJson, rowNr);
@@ -1158,7 +1228,7 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
     console.log("changeHTML file requested", variable.id, rowNr, commandJson);
   
     //we need to send a request which the server can handle using request variable
-    let url = `http://${window.location.hostname}/file`;
+    let url = `http://${window.location.hostname}/file/`;
     fetchAndExecute(url, commandJson.file, node.id, function(id, text) { //send node.id as parameter
       // console.log("fetchAndExecute", text); //in case of invalid commandJson
       var ledmapJson = JSON.parse(text);
@@ -1171,13 +1241,13 @@ function changeHTML(variable, commandJson, rowNr = UINT8_MAX) {
   }
 } //changeHTML
 
-function flushUIFunCommands() {
-  if (uiFunCommands.length > 0) { //if something to flush
+function flushOnUICommands() {
+  if (onUICommands.length > 0) { //if something to flush
     var command = {};
-    command.uiFun = uiFunCommands; //ask to run uiFun for vars (to add the options)
-    // console.log("flushUIFunCommands", command);
+    command.onUI = onUICommands; //ask to run onUI for vars (to add the options)
+    // console.log("flushOnUICommands", command);
     requestJson(command);
-    uiFunCommands = [];
+    onUICommands = [];
   }
 }
 
@@ -1306,8 +1376,14 @@ function toggleModal(varNode) { //canvas or textarea
   // console.log("toggleModal", varNode);
   isModal = !isModal;
 
-	if (isModal) {
+  let modalView = gId('modalView');
 
+	if (isModal) {
+    //delete old nodes
+    while (modalView.firstChild) {
+      modalView.removeChild(modalView.lastChild);
+    }
+    
     modalPlaceHolder = cE(varNode.nodeName.toLocaleLowerCase()); //create canvas or textarea
     modalPlaceHolder.width = varNode.width;
     modalPlaceHolder.height = varNode.height;
@@ -1316,10 +1392,10 @@ function toggleModal(varNode) { //canvas or textarea
 
     // let btn = cE("button");
     // btn.innerText = "close";
-    // btn.addEventListener('click', (event) => {toggleModal(varNode);});
+    // btn.addEventListener('click', (event) => {toggleModal(event.target);});
     // gId('modalView').appendChild(btn);
 
-    gId('modalView').appendChild(varNode);
+    modalView.appendChild(varNode);
     varNode.width = window.innerWidth;
     varNode.height = window.innerHeight;
     // console.log("toggleModal +", varNode, modalPlaceHolder, varNode.getBoundingClientRect(), modalPlaceHolder.getBoundingClientRect().width, modalPlaceHolder.getBoundingClientRect().height, modalPlaceHolder.width, modalPlaceHolder.height);
@@ -1333,7 +1409,7 @@ function toggleModal(varNode) { //canvas or textarea
     modalPlaceHolder.parentNode.replaceChild(varNode, modalPlaceHolder); // //replace by varNode. modalPlaceHolder loses rect
   }
 
-	gId('modalView').style.transform = (isModal) ? "translateY(0px)":"translateY(100%)";
+	modalView.style.transform = (isModal) ? "translateY(0px)":"translateY(100%)";
 }
 // https://stackoverflow.com/questions/324303/cut-and-paste-moving-nodes-in-the-dom-with-javascript
 
@@ -1481,6 +1557,21 @@ function fetchAndExecute(url, name, parms, callback, callError = null)
   .finally(() => {
     // if (callback) setTimeout(callback,99);
   });
+}
+
+function uploadFileWithText(name, text)
+{
+  var req = new XMLHttpRequest();
+  req.addEventListener('load', function(){console.log("uploadFileWithText load", this.responseText, this.status);});
+  req.addEventListener('error', function(e){console.log("uploadFileWithText error", e);});
+  req.open("POST", "/upload");
+  var formData = new FormData();
+
+  var blob = new Blob([text], {type : 'application/text'});
+  var fileOfBlob = new File([blob], name);
+  formData.append("upload", fileOfBlob);
+
+  req.send(formData);
 }
 
 function setInstanceTableColumns() {

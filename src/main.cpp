@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      main.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -29,21 +29,21 @@ SysModSystem *sys;
 SysModFiles *files;
 SysModModel *mdl;
 SysModNetwork *net;
-SysModPins *pins;
+SysModPins *pinsM;
 SysModInstances *instances;
 UserModMDNS *mdns;
-#ifdef STARLEDS
+#ifdef STARLIGHT
   #include "App/LedModEffects.h"
   #include "App/LedModFixture.h"
   #include "App/LedModFixtureGen.h"
   LedModFixture *fix;
   LedModFixtureGen *lfg;
   LedModEffects *eff;
-  #ifdef STARLEDS_USERMOD_ARTNET
+  #ifdef STARLIGHT_USERMOD_ARTNET
     #include "User/UserModArtNet.h"
     UserModArtNet *artnetmod;
   #endif
-  #ifdef STARLEDS_USERMOD_DDP
+  #ifdef STARLIGHT_USERMOD_DDP
     #include "User/UserModDDP.h"
     UserModDDP *ddpmod;
   #endif
@@ -56,7 +56,15 @@ UserModMDNS *mdns;
   #include "User/UserModHA.h"
   UserModHA *hamod;
 #endif
-#ifdef STARLEDS_USERMOD_WLEDAUDIO
+#ifdef STARBASE_USERMOD_MPU6050
+  #include "User/UserModMPU6050.h"
+  UserModMPU6050 *mpu6050;
+#endif
+#ifdef STARBASE_USERMOD_LIVE
+  #include "User/UserModLive.h"
+  UserModLive *liveM;
+#endif
+#ifdef STARLIGHT_USERMOD_WLEDAUDIO
   #include "User/UserModWLEDAudio.h"
   UserModWLEDAudio *wledAudioMod;
 #endif
@@ -72,17 +80,17 @@ void setup() {
   web = new SysModWeb();
   ui = new SysModUI();
   sys = new SysModSystem();
-  pins = new SysModPins();
+  pinsM = new SysModPins();
   instances = new SysModInstances();
   mdns = new UserModMDNS();
-  #ifdef STARLEDS
-    eff= new LedModEffects();
+  #ifdef STARLIGHT
+    eff = new LedModEffects();
     fix = new LedModFixture();
     lfg = new LedModFixtureGen();
-    #ifdef STARLEDS_USERMOD_ARTNET
+    #ifdef STARLIGHT_USERMOD_ARTNET
       artnetmod = new UserModArtNet();
     #endif
-    #ifdef STARLEDS_USERMOD_DDP
+    #ifdef STARLIGHT_USERMOD_DDP
       ddpmod = new UserModDDP();
     #endif
   #endif
@@ -92,29 +100,35 @@ void setup() {
   #ifdef STARBASE_USERMOD_HA
     hamod = new UserModHA();
   #endif
-  #ifdef STARLEDS_USERMOD_WLEDAUDIO
+  #ifdef STARBASE_USERMOD_MPU6050
+    mpu6050 = new UserModMPU6050();
+  #endif
+  #ifdef STARBASE_USERMOD_LIVE
+    liveM = new UserModLive();
+  #endif
+  #ifdef STARLIGHT_USERMOD_WLEDAUDIO
     wledAudioMod = new UserModWLEDAudio();
   #endif
 
   //Reorder with care! this is the order in which setup and loop is executed
-  //If changed make sure mdlEnabled.chFun executes var["value"].to<JsonArray>(); and saveModel! 
+  //If changed make sure mdlEnabled.onChange executes var["value"].to<JsonArray>(); and saveModel! 
   //Default: add below, not in between
-  #ifdef STARLEDS
+  #ifdef STARLIGHT
     mdls->add(fix);
     mdls->add(eff);
     mdls->add(lfg);
   #endif
   mdls->add(files);
   mdls->add(sys);
-  mdls->add(pins);
+  mdls->add(pinsM);
   mdls->add(print);
   mdls->add(web);
   mdls->add(net);
-  #ifdef STARLEDS
-    #ifdef STARLEDS_USERMOD_DDP
+  #ifdef STARLIGHT
+    #ifdef STARLIGHT_USERMOD_DDP
       mdls->add(ddpmod);
     #endif
-    #ifdef STARLEDS_USERMOD_ARTNET
+    #ifdef STARLIGHT_USERMOD_ARTNET
       mdls->add(artnetmod);
     #endif
   #endif
@@ -124,13 +138,19 @@ void setup() {
   #ifdef STARBASE_USERMOD_HA
     mdls->add(hamod); //no ui
   #endif
+  #ifdef STARBASE_USERMOD_MPU6050
+    mdls->add(mpu6050);
+  #endif
   mdls->add(mdl);
   mdls->add(ui);
-  #ifdef STARLEDS_USERMOD_WLEDAUDIO
+  #ifdef STARLIGHT_USERMOD_WLEDAUDIO
     mdls->add(wledAudioMod); //no ui
   #endif
   mdls->add(mdns); //no ui
   mdls->add(instances);
+  #ifdef STARBASE_USERMOD_LIVE
+    mdls->add(liveM);
+  #endif
 
   //do not add mdls itself as it does setup and loop for itself!!! (it is the orchestrator)
   mdls->setup();

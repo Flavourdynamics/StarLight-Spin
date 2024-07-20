@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModInstances.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewoudwijma/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewoudwijma/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -29,7 +29,7 @@ struct SysData {
   uint8_t timeSource; //29
   uint32_t tokiTime; //30 in sec
   uint16_t tokiMs; //34
-  byte type; //0=WLED, 1=StarBase, 2=StarLeds, 3=StarFork
+  byte type; //0=WLED, 1=StarBase, 2=StarLight, 3=StarLedsLive, else=StarFork
   DMX dmx;
   uint8_t macAddress[6]; // 48 bits WIP
 };
@@ -114,7 +114,7 @@ public:
     parentVar = ui->initSysMod(parentVar, name, 3000);
 
     JsonObject tableVar = ui->initTable(parentVar, "insTbl", nullptr, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Instances");
         ui->setComment(var, "List of instances");
         return true;
@@ -122,15 +122,15 @@ public:
     }});
     
     ui->initText(tableVar, "insName", nullptr, 32, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, JsonString(instances[rowNrL].name, JsonString::Copied), rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Name");
         return true;
       // comment this out for the time being as causes corrupted instance names
-      // case f_ChangeFun:
+      // case onChange:
       //   strcpy(instances[rowNr].name, mdl->getValue(var, rowNr));
       //   sendMessageUDP(instances[rowNr].ip, "name", mdl->getValue(var, rowNr));
       //   return true;
@@ -138,112 +138,114 @@ public:
     }});
 
     ui->initURL(tableVar, "insShow", nullptr, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++) {
           char urlString[32] = "http://";
           strncat(urlString, instances[rowNrL].ip.toString().c_str(), sizeof(urlString)-1);
           mdl->setValue(var, JsonString(urlString, JsonString::Copied), rowNrL);
         }
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Show");
         return true;
       default: return false;
     }});
 
     ui->initNumber(tableVar, "insLink", UINT16_MAX, 0, UINT16_MAX, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, calcGroup(instances[rowNrL].name), rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Link");
         return true;
       default: return false;
     }});
 
     ui->initText(tableVar, "insIp", nullptr, 16, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, JsonString(instances[rowNrL].ip.toString().c_str(), JsonString::Copied), rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "IP");
         return true;
       default: return false;
     }});
 
     ui->initText(tableVar, "insType", nullptr, 16, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
-        for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
-          mdl->setValue(var, (instances[rowNrL].sysData.type==0)?"WLED":(instances[rowNrL].sysData.type==1)?"StarBase":(instances[rowNrL].sysData.type==2)?"StarLeds":"StarFork", rowNrL);
+      case onSetValue:
+        for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++) {
+          byte type = instances[rowNrL].sysData.type;
+          mdl->setValue(var, (type==0)?"WLED":(type==1)?"StarBase":(type==2)?"StarLight":(type==3)?"StarLedsLive":"StarFork", rowNrL);
+        }
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Type");
         return true;
       default: return false;
     }});
 
     ui->initNumber(tableVar, "insVersion", UINT16_MAX, 0, (unsigned long)-1, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, instances[rowNrL].version, rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Version");
         return true;
       default: return false;
     }});
 
     ui->initNumber(tableVar, "insUp", UINT16_MAX, 0, (unsigned long)-1, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, instances[rowNrL].sysData.upTime, rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Uptime");
         return true;
       default: return false;
     }});
     ui->initNumber(tableVar, "insNow", UINT16_MAX, 0, (unsigned long)-1, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, instances[rowNrL].sysData.now / 1000, rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Now");
         return true;
       default: return false;
     }});
 
     ui->initNumber(tableVar, "insTS", UINT16_MAX, 0, (unsigned long)-1, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, instances[rowNrL].sysData.timeSource, rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "TS");
         return true;
       default: return false;
     }});
 
     ui->initNumber(tableVar, "insTT", UINT16_MAX, 0, (unsigned long)-1, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, instances[rowNrL].sysData.tokiTime, rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Time");
         return true;
       default: return false;
     }});
 
     ui->initNumber(tableVar, "insTM", UINT16_MAX, 0, (unsigned long)-1, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
+      case onSetValue:
         for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++)
           mdl->setValue(var, instances[rowNrL].sysData.tokiMs, rowNrL);
         return true;
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Ms");
         return true;
       default: return false;
@@ -260,13 +262,13 @@ public:
       strcat(columnVarID, var["id"]);
       JsonObject insVar; // = ui->cloneVar(var, columnVarID, [this, var](JsonObject insVar){});
 
-      //create a var of the same type. InitVar is not calling chFun which is good in this situation!
+      //create a var of the same type. InitVar is not calling onChange which is good in this situation!
       insVar = ui->initVar(tableVar, columnVarID, var["type"], false, [this, var](JsonObject insVar, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-        case f_ValueFun:
-          //should not trigger chFun
+        case onSetValue:
+          //should not trigger onChange
           for (forUnsigned8 rowNrL = 0; rowNrL < instances.size() && (rowNr == UINT8_MAX || rowNrL == rowNr); rowNrL++) {
             // ppf("initVar dash %s[%d]\n", mdl->varID(insVar), rowNrL);
-            //do what setValue is doing except calling changeFun
+            //do what setValue is doing except calling onChange
             // insVar["value"][rowNrL] = instances[rowNrL].jsonData[mdl->varID(var)]; //only int values...
 
             web->addResponse(insVar["id"], "value", instances[rowNrL].jsonData[mdl->varID(var)], rowNrL);
@@ -275,11 +277,11 @@ public:
           //send to ws?
           }
           return true;
-        case f_UIFun:
-          // call uiFun of the base variable for the new variable
-          ui->varFunctions[var["fun"]](insVar, rowNr, f_UIFun);
+        case onUI:
+          // call onUI of the base variable for the new variable
+          ui->varFunctions[var["fun"]](insVar, rowNr, onUI);
           return true;
-        case f_ChangeFun: {
+        case onChange: {
           //do not set this initially!!!
           if (rowNr != UINT8_MAX) {
             //if this instance update directly, otherwise send over network
@@ -298,7 +300,7 @@ public:
         if (!var["min"].isNull()) insVar["min"] = var["min"];
         if (!var["max"].isNull()) insVar["max"] = var["max"];
         if (!var["log"].isNull()) insVar["log"] = var["log"];
-        // insVar["fun"] = var["fun"]; //copy the uiFun
+        // insVar["fun"] = var["fun"]; //copy the onUI
       }
 
     });
@@ -328,14 +330,13 @@ public:
       instances.clear();
 
       //not needed here as there is no connection
-      // ui->processUiFun("insTbl");
+      // ui->processOnUI("insTbl");
 
       //udp off ??
     }
   }
 
-  void loop() {
-    // SysModule::loop();
+  void loop20ms() { //20 ms instead of loop() tripples the loops/sec!
 
     handleNotifications();
 
@@ -464,7 +465,7 @@ public:
 
           ppf("insTbl handleNotifications %d\n", notifierUdp.remoteIP()[3]);
           for (JsonObject childVar: mdl->varChildren("insTbl"))
-            ui->callVarFun(childVar); //rowNr //instance - instances.begin()
+            ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP) ); //rowNr //instance - instances.begin()
 
           web->recvUDPCounter++;
           web->recvUDPBytes+=packetSize;
@@ -558,10 +559,10 @@ public:
     if (erased) {
       ppf("insTbl remove inactive instances\n");
       for (JsonObject childVar: mdl->varChildren("insTbl"))
-        ui->callVarFun(childVar); //no rowNr so all rows updated
+        ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP)); //no rowNr so all rows updated
 
-      ui->callVarFun("ddpInst", UINT8_MAX, f_UIFun); //rebuild options
-      ui->callVarFun("artInst", UINT8_MAX, f_UIFun); //rebuild options
+      ui->callVarFun("ddpInst", UINT8_MAX, onUI); //rebuild options
+      ui->callVarFun("artInst", UINT8_MAX, onUI); //rebuild options
     }
   }
 
@@ -596,7 +597,7 @@ public:
     #endif
     starMessage.header.insId = localIP[3]; //WLED: used in map of instances as index!
     starMessage.header.version = VERSION;
-    starMessage.sysData.type = (strcmp(_INIT(TOSTRING(APP)), "StarBase")==0)?1:(strcmp(_INIT(TOSTRING(APP)), "StarLeds")==0)?2:3; //1=StarBase,2=StarLeds, 3=StarFork
+    starMessage.sysData.type = (strcmp(_INIT(TOSTRING(APP)), "StarBase")==0)?1:(strcmp(_INIT(TOSTRING(APP)), "StarLight")==0)?2:(strcmp(_INIT(TOSTRING(APP)), "StarLedsLive")==0)?3:99; //0=WLED, 1=StarBase, 2=StarLight, 3=StarLedsLive, else=StarFork
     starMessage.sysData.upTime = millis()/1000;
     starMessage.sysData.now = millis() + sys->timebase; //similar to now
     starMessage.sysData.timeSource = sys->toki.getTimeSource();
@@ -721,7 +722,7 @@ public:
           // ppf("macaddress %02X:%02X:%02X:%02X:%02X:%02X\n", instance.macAddress[0], instance.macAddress[1], instance.macAddress[2], instance.macAddress[3], instance.macAddress[4], instance.macAddress[5]);
         }
 
-        if (udpStarMessage.sysData.type >= 1) {//StarBase, StarLeds and forks only
+        if (udpStarMessage.sysData.type >= 1) {//StarBase, StarLight and forks only
           instance.sysData = udpStarMessage.sysData;
 
           if (instance.ip != WiFi.localIP()) { //send from localIP will be done after updateInstance
@@ -796,7 +797,7 @@ public:
           // ppf("updateInstance updRow\n");
 
           for (JsonObject childVar: mdl->varChildren("insTbl"))
-            ui->callVarFun(childVar); //rowNr instance - instances.begin()
+            ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP)); //rowNr instance - instances.begin()
 
           //tbd: now done for all rows, should be done only for updated rows!
         }
@@ -808,15 +809,15 @@ public:
     if (!instanceFound) {
       ppf("insTbl new instance %s\n", messageIP.toString().c_str());
       
-      ui->callVarFun("ddpInst", UINT8_MAX, f_UIFun); //rebuild options
-      ui->callVarFun("artInst", UINT8_MAX, f_UIFun); //rebuild options
+      ui->callVarFun("ddpInst", UINT8_MAX, onUI); //rebuild options
+      ui->callVarFun("artInst", UINT8_MAX, onUI); //rebuild options
 
-      // ui->processUiFun("insTbl");
+      // ui->processOnUI("insTbl");
       //run though it sorted to find the right rowNr
       // for (std::vector<InstanceInfo>::iterator instance=instances.begin(); instance!=instances.end(); ++instance) {
       //   if (instance->ip == messageIP) {
           for (JsonObject childVar: mdl->varChildren("insTbl")) {
-            ui->callVarFun(childVar); //no rowNr, update all
+            ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP)); //no rowNr, update all
           }
       //   }
       // }

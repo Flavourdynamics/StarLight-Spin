@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModFiles.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -17,6 +17,7 @@
 struct FileDetails {
   char name[32];
   size_t size;
+  time_t time;
 };
 
 class SysModFiles: public SysModule {
@@ -28,7 +29,7 @@ public:
 
   SysModFiles();
   void setup();
-  void loop();
+  void loop20ms();
   void loop10s();
 
   bool remove(const char * path);
@@ -43,7 +44,7 @@ public:
   void dirToJson(JsonArray array, bool nameOnly = false, const char * filter = nullptr);
 
   //get back the name of a file based on the sequence
-  bool seqNrToName(char * fileName, size_t seqNr);
+  bool seqNrToName(char * fileName, size_t seqNr, const char * filter = nullptr);
 
   //reads file and load it in json
   //name is copied from WLED but better to call it readJsonFrom file

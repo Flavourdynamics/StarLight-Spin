@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModWeb.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -57,10 +57,14 @@ public:
   unsigned8 recvUDPCounter = 0;
   unsigned16 recvUDPBytes = 0;
 
+  #ifdef STARBASE_USERMOD_LIVE
+    char lastFileUpdated[30] = ""; //workaround!
+  #endif
+
   SysModWeb();
 
   void setup();
-  void loop();
+  void loop20ms();
   void loop1s();
 
   void reboot();
@@ -75,6 +79,7 @@ public:
 
   //add an url to the webserver to listen to
   void serveIndex(WebRequest *request);
+  void serveNewUI(WebRequest *request);
   //mdl and WLED style state and info
   void serializeState(JsonObject root);
   void serializeInfo(JsonObject root);

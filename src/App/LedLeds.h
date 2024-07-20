@@ -1,10 +1,10 @@
 /*
-   @title     StarLeds
+   @title     StarLight
    @file      LedLeds.h
-   @date      20240227
-   @repo      https://github.com/MoonModules/StarLeds
-   @Authors   https://github.com/MoonModules/StarLeds/commits/main
-   @Copyright © 2024 Github StarLeds Commit Authors
+   @date      20240720
+   @repo      https://github.com/MoonModules/StarLight
+   @Authors   https://github.com/MoonModules/StarLight/commits/main
+   @Copyright © 2024 Github StarLight Commit Authors
    @license   GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
    @license   For non GPL-v3 usage, commercial licenses must be purchased. Contact moonmodules@icloud.com
 */
@@ -28,19 +28,25 @@
 #include "../data/font/console_font_6x8.h"
 #include "../data/font/console_font_7x9.h"
 
-enum Projections
+#define NUM_VLEDS_Max 8192
+
+enum ProjectionsE
 {
+  p_None,
   p_Default,
+  p_Pinwheel,
   p_Multiply,
   p_TiltPanRoll,
   p_DistanceFromPoint,
   p_Preset1,
-  p_None,
   p_Random,
   p_Reverse,
   p_Mirror,
+  p_Grouping,
+  p_Spacing,
+  p_Transpose,
   p_Kaleidoscope,
-  p_count
+  p_count // keep as last entry
 };
 
 //     sin8/cos8   sin16/cos16
@@ -114,8 +120,7 @@ static Trigo trigoTiltPanRoll(255); // Trigo8 is hardly any faster (27 vs 28 fps
 class Fixture; //forward
 
 
-
-//StarLeds implementation of segment.data
+//StarLight implementation of segment.data
 class SharedData {
 
   private:
@@ -138,7 +143,8 @@ class SharedData {
     index = 0;
   }
 
-  void loop() {
+  //sets the effectData pointer back to 0 so loop effect can go through it
+  void begin() {
     index = 0;
   }
 
@@ -178,13 +184,104 @@ class SharedData {
 
 };
 
+enum mapType {
+  m_color,
+  m_onePixel,
+  m_morePixels,
+  m_count //keep as last entry
+};
+
+class Leds; //forward
+
+
 struct PhysMap {
-  // bool isPhys = false; // 1 byte
-  // union {
-    std::vector<unsigned16> * indexes;
-    CRGB color;
-  // }; // 4 bytes
-}; // expected to be 5 bytes but is 8 bytes!!!
+  union {
+    CRGB color; // 3 bytes
+    struct {
+      uint16_t indexP;  // 2 bytes
+      byte placeHolder1; // 1 byte
+      byte placeHolder2:6; //6 bits
+      byte type:2; // 2 bits used for color and indexP (more colors is using raw[3], see getMapType)
+    }; //4 bytes
+    std::vector<unsigned16> * indexes; // 4 bytes
+    //the following struct / union will replace above if fully converted to Pal / 2 byte mapping mode
+    struct {
+      union {
+        struct {                  //no physical pixel (type==0) palette (all linearblend)
+          uint8_t palIndex:8;     //8 bits (256)
+          uint8_t palBri:6;       //6 bits (64)
+          byte mapType:2;         //2 bits (4)
+        }; // 16 bits
+        uint16_t indexP1: 14;   //16384 one physical pixel (type==1) index to ledsP array
+        uint16_t indexes1:14;  //16384 multiple physical pixels (type==2) index in std::vector<std::vector<unsigned16>> mappingTableIndexes;
+        struct {                 //condensed rgb, keep in GBR order!!! exceptional cases when no palette. e.g. solid?
+          uint8_t g:5;           //32
+          uint8_t b:3;           //8
+          uint8_t r:6;           //64
+        }; //14 bits
+      }; //14 bits
+      byte rawx[2]; //temporary filler to check if total will not extend 4 bytes
+    }; //2 bytes
+    byte raw[4]; //raw[3] == 63 for indexes pointers 
+  }; // 4 bytes
+
+  PhysMap(bool palColorEffect) { // checkPalColorEffect: temp method until all effects have been converted to Palette / 2 byte mapping mode
+    indexes = nullptr; //all zero's
+    if (palColorEffect)
+      mapType = m_color; // the default until indexP is added
+    else
+      type = m_color; // the default until indexP is added
+  }
+
+  void setColor(CRGB color) {
+    this->color = color;
+    placeHolder2 = 0; //cleanup memory
+    type = m_color;
+    // ppf("dev new color %d,%d,%d t: %d,%d,%d,%d\n", this->color.r, this->color.g, this->color.b, type[0], type[1], type[2], type[3]);
+    //dev new color 245,0,10 t: 245,0,10,255
+  }
+
+  uint8_t getMapType() {
+    if (raw[3] == 63) return m_morePixels; // this first as pointer could contain values for m_color and m_onepixel
+        // raw[3] == 63 is the imperical found value if the 4th bit of a pointer, hopefully this is the same on all boards, but we will check in addIndexP
+    if (type == m_color) return m_color;
+    if (type == m_onePixel) return m_onePixel;
+    return UINT8_MAX; // no valid type found
+  }
+
+  void addIndexP(uint16_t indexP) {
+    switch (getMapType()) {
+      case m_color:
+        this->indexP = indexP;
+        placeHolder1 = 0; // cleanup memory
+        placeHolder2 = 0; // cleanup memory
+        type = m_onePixel;
+        // ppf("dev new indexP t:%d i:%d p1:%d p2:%d\n", type, this->indexP, placeHolder1, placeHolder2);
+        break;
+      case m_onePixel: {
+        uint16_t oldIndexP = this->indexP; //save old indexP
+        indexes = new std::vector<unsigned16>; //overwrite old indexP with indexes, type will be m_morePixels implicetly because this is a pointer!!!
+        // ppf("dev new indexes t:%d i:%d t3:%d b:%d p:%p\n", type, indexP, raw[3], raw[3] & 0x80, indexes);
+        if (getMapType() != m_morePixels)
+          // raw[3] == 63 is the imperical found value if the 4th bit of a pointer, hopefully this is the same on all boards, but we will check here if it is not the case
+          ppf("dev addIndexP not indexes t:%d i:%d t3:%d b:%d p:%p\n", type, indexP, raw[3], raw[3] & 0x80, indexes);
+        else {
+          indexes->push_back(oldIndexP);
+          indexes->push_back(indexP);
+        }
+        break; }
+      case m_morePixels:
+        // ppf("dev add indexes t:%d i:%d t3:%d b:%d p:%p s:%d\n", type, indexP, raw[3], raw[3] & 0x80, indexes, indexes->size());
+        indexes->push_back(indexP);
+        break;
+    }
+  }
+
+  void addIndexP2(Leds &leds, uint16_t indexP); // addIndexP2: temp method until all effects have been converted to Palette / 2 byte mapping mode
+
+}; // 4 bytes
+
+class Projection; //forward for cached virtual class methods!
 
 class Leds {
 
@@ -198,17 +295,29 @@ public:
 
   uint16_t fx = -1;
   unsigned8 projectionNr = -1;
+
+  //using cached virtual class methods! 4 bytes each - thats for now the price we pay for speed
+  void (Projection::*setupCached)(Leds &, Coord3D &, Coord3D &, Coord3D &, Coord3D &, uint16_t &) = nullptr;
+  void (Projection::*adjustXYZCached)(Leds &, Coord3D &) = nullptr;
+
   unsigned8 effectDimension = -1;
   unsigned8 projectionDimension = -1;
 
   Coord3D startPos = {0,0,0}, endPos = {UINT16_MAX,UINT16_MAX,UINT16_MAX}; //default
+  Coord3D midPos = {0,0,0};
+  #ifdef STARBASE_USERMOD_MPU6050
+    bool proGyro = false;
+  #endif
   unsigned8 proTiltSpeed = 128;
   unsigned8 proPanSpeed = 128;
   unsigned8 proRollSpeed = 128;
 
-  SharedData sharedData;
+  SharedData effectData;
+  SharedData projectionData;
 
   std::vector<PhysMap> mappingTable;
+  std::vector<std::vector<unsigned16>> mappingTableIndexes;
+
 
   unsigned16 indexVLocal = 0; //set in operator[], used by operator=
 
@@ -220,15 +329,18 @@ public:
     return XYZ(x, y, 0);
   }
 
-  unsigned16 XYZNoSpin(Coord3D coord) {
-    return coord.x + coord.y * size.x + coord.z * size.x * size.y;
+  unsigned16 XYZUnprojected(Coord3D pixel) {
+    if (pixel >= 0 && pixel < size)
+      return pixel.x + pixel.y * size.x + pixel.z * size.x * size.y;
+    else
+      return UINT16_MAX;
   }
 
-  unsigned16 XYZ(Coord3D coord) {
-    return XYZ(coord.x, coord.y, coord.z);
+  unsigned16 XYZ(unsigned16 x, unsigned16 y, unsigned16 z) {
+    return XYZ({x, y, z});
   }
 
-  unsigned16 XYZ(unsigned16 x, unsigned16 y, unsigned16 z);
+  unsigned16 XYZ(Coord3D pixel);
 
   Leds(Fixture &fixture) {
     ppf("Leds constructor (PhysMap:%d)\n", sizeof(PhysMap));
@@ -240,13 +352,19 @@ public:
     fadeToBlackBy(100);
     doMap = true; // so loop is not running while deleting
     for (PhysMap &map:mappingTable) {
-      if (map.indexes) {
-        map.indexes->clear();
-        delete map.indexes;
+      if (checkPalColorEffect()) { // checkPalColorEffect: temp method until all effects have been converted to Palette / 2 byte mapping mode
+        mappingTableIndexes.clear();
       }
+      else
+        if (map.getMapType() == m_morePixels) {
+          map.indexes->clear();
+          delete map.indexes;
+        }
     }
     mappingTable.clear();
   }
+
+  void triggerMapping();
 
   // indexVLocal stored to be used by other operators
   Leds& operator[](unsigned16 indexV) {
@@ -291,11 +409,29 @@ public:
   void setPixelColor(unsigned16 indexV, CRGB color, unsigned8 blendAmount = UINT8_MAX);
   void setPixelColor(Coord3D pixel, CRGB color, unsigned8 blendAmount = UINT8_MAX) {setPixelColor(XYZ(pixel), color, blendAmount);}
 
+  // temp methods until all effects have been converted to Palette / 2 byte mapping mode
+  void setPixelColorPal(unsigned16 indexV, uint8_t palIndex, uint8_t palBri = 255, unsigned8 blendAmount = UINT8_MAX);
+  void setPixelColorPal(Coord3D pixel, uint8_t palIndex, uint8_t palBri = 255, unsigned8 blendAmount = UINT8_MAX) {setPixelColorPal(XYZ(pixel), palIndex, palBri, blendAmount);}
+
   CRGB getPixelColor(unsigned16 indexV);
   CRGB getPixelColor(Coord3D pixel) {return getPixelColor(XYZ(pixel));}
 
   void addPixelColor(unsigned16 indexV, CRGB color) {setPixelColor(indexV, getPixelColor(indexV) + color);}
   void addPixelColor(Coord3D pixel, CRGB color) {setPixelColor(pixel, getPixelColor(pixel) + color);}
+
+  void drawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, CRGB color) {
+    if (x0 >= size.x || x1 >= size.x || y0 >= size.y || y1 >= size.y) return;
+    const int16_t dx = abs(x1-x0), sx = x0<x1 ? 1 : -1;
+    const int16_t dy = abs(y1-y0), sy = y0<y1 ? 1 : -1;
+    int16_t err = (dx>dy ? dx : -dy)/2, e2;
+    for (;;) {
+      setPixelColor(XY(x0,y0), color);
+      if (x0==x1 && y0==y1) break;
+      e2 = err;
+      if (e2 >-dx) { err -= dy; x0 += sx; }
+      if (e2 < dy) { err += dx; y0 += sy; }
+    }
+  }
 
   void fadeToBlackBy(unsigned8 fadeBy = 255);
   void fill_solid(const struct CRGB& color, bool noBlend = false);
@@ -303,7 +439,10 @@ public:
 
   //checks if a virtual pixel is mapped to a physical pixel (use with XY() or XYZ() to get the indexV)
   bool isMapped(unsigned16 indexV) {
-    return indexV < mappingTable.size() && mappingTable[indexV].indexes;
+    if (checkPalColorEffect()) // checkPalColorEffect: temp method until all effects have been converted to Palette / 2 byte mapping mode
+      return indexV < mappingTable.size() && (mappingTable[indexV].mapType == m_onePixel || mappingTable[indexV].mapType == m_morePixels);
+    else
+      return indexV < mappingTable.size() && (mappingTable[indexV].getMapType() == m_onePixel || mappingTable[indexV].getMapType() == m_morePixels);
   }
 
   void blur1d(fract8 blur_amount)
@@ -420,6 +559,15 @@ public:
     for (int shiftChr = 0; shiftChr < numberOfChr; shiftChr++) {
       drawCharacter(text[shiftChr], x, y, font, col, shiftPixel, shiftChr);
     }
+  }
+
+  // checkPalColorEffect: temp method until all effects have been converted to Palette / 2 byte mapping mode
+  //     add id's of all converted methods here
+  bool checkPalColorEffect() {
+    return (fx == 1) //rainBow
+           || (fx == 24) //lissajous
+           || (fx == 27) //noise2D
+           ;
   }
 
 };

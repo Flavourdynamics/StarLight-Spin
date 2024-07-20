@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      UserModHA.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -68,8 +68,7 @@ public:
 
   }
 
-  void loop() override {
-    // SysModule::loop();
+  void loop20ms() override {
     mqtt->loop();
   }
 

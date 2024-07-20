@@ -1,10 +1,10 @@
 /*
-   @title     StarLeds
+   @title     StarLight
    @file      LedFixture.h
-   @date      20240228
-   @repo      https://github.com/MoonModules/StarLeds
-   @Authors   https://github.com/MoonModules/StarLeds/commits/main
-   @Copyright © 2024 Github StarLeds Commit Authors
+   @date      20240720
+   @repo      https://github.com/MoonModules/StarLight
+   @Authors   https://github.com/MoonModules/StarLight/commits/main
+   @Copyright © 2024 Github StarLight Commit Authors
    @license   GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
    @license   For non GPL-v3 usage, commercial licenses must be purchased. Contact moonmodules@icloud.com
 */
@@ -15,7 +15,7 @@
 
 #include "LedLeds.h"
 
-#define NUM_LEDS_Max 4096
+#define NUM_LEDS_Max 8192
 
 #define _1D 1
 #define _2D 2
@@ -23,6 +23,19 @@
 
 
 class Leds; //forward
+
+class Projection {
+public:
+  virtual const char * name() {return "noname";}
+  virtual const char * tags() {return "";}
+
+  virtual void setup(Leds &leds, Coord3D &sizeAdjusted, Coord3D &pixelAdjusted, Coord3D &midPosAdjusted, Coord3D &mapped, uint16_t &indexV) {}
+  
+  virtual void adjustXYZ(Leds &leds, Coord3D &pixel) {}
+  
+  virtual void controls(Leds &leds, JsonObject parentVar) {}
+
+};
 
 class Fixture {
 
@@ -39,11 +52,13 @@ public:
   // leds = (CRGB*)malloc(nrOfLeds * sizeof(CRGB));
   // leds = (CRGB*)reallocarray
 
+  std::vector<Projection *> projections;
+
   unsigned16 nrOfLeds = 64; //amount of physical leds
   unsigned8 fixtureNr = -1;
   Coord3D fixSize = {8,8,1};
 
-  std::vector<Leds *> projections; //virtual leds
+  std::vector<Leds *> listOfLeds; //virtual leds
 
   Coord3D head = {0,0,0};
 
@@ -54,5 +69,9 @@ public:
   
   //load fixture json file, parse it and depending on the projection, create a mapping for it
   void projectAndMap();
+
+  #ifdef STARLIGHT_CLOCKLESS_LED_DRIVER
+    uint8_t setMaxPowerBrightness = 30; //tbd: implement driver.setMaxPowerInMilliWatts
+  #endif
 
 };

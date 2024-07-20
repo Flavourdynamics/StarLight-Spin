@@ -1,10 +1,10 @@
 /*
-   @title     StarLeds
+   @title     StarLight
    @file      LedModFixture.h
-   @date      20240228
-   @repo      https://github.com/MoonModules/StarLeds
-   @Authors   https://github.com/MoonModules/StarLeds/commits/main
-   @Copyright © 2024 Github StarLeds Commit Authors
+   @date      20240720
+   @repo      https://github.com/MoonModules/StarLight
+   @Authors   https://github.com/MoonModules/StarLight/commits/main
+   @Copyright © 2024 Github StarLight Commit Authors
    @license   GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
    @license   For non GPL-v3 usage, commercial licenses must be purchased. Contact moonmodules@icloud.com
 */
@@ -14,6 +14,8 @@ class LedModFixture:public SysModule {
 public:
 
   uint8_t viewRotation = 0;
+  uint8_t bri = 10;
+  bool rgb1B = true;
 
   LedModFixture() :SysModule("Fixture") {};
 
@@ -23,27 +25,30 @@ public:
     parentVar = ui->initAppMod(parentVar, name, 1100);
 
     JsonObject currentVar = ui->initCheckBox(parentVar, "on", true, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "On");
         return true;
-      case f_ChangeFun:
-        mdl->callVarChangeFun(mdl->findVar("bri"), UINT8_MAX, true); //set FastLed brightness (init is true so bri value not send via udp)
+      case onChange:
+        mdl->callVarChangeFun(mdl->findVar("bri"), UINT8_MAX, true); //set brightness (init is true so bri value not send via udp)
         return true;
       default: return false;
     }});
     currentVar["dash"] = true;
 
     //logarithmic slider (10)
-    currentVar = ui->initSlider(parentVar, "bri", 10, 0, 255, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
+    currentVar = ui->initSlider(parentVar, "bri", &bri, 0, 255, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+      case onUI:
         ui->setLabel(var, "Brightness");
         return true;
-      case f_ChangeFun: {
-        stackUnsigned8 bri = var["value"];
-
+      case onChange: {
+        //bri set by StarMod during onChange
         stackUnsigned8 result = mdl->getValue("on").as<bool>()?mdl->varLinearToLogarithm(var, bri):0;
 
-        FastLED.setBrightness(result);
+        #ifdef STARLIGHT_CLOCKLESS_LED_DRIVER
+          eff->driver.setBrightness(result * eff->fixture.setMaxPowerBrightness / 256);
+        #else
+          FastLED.setBrightness(result);
+        #endif
 
         ppf("Set Brightness to %d -> b:%d r:%d\n", var["value"].as<int>(), bri, result);
         return true; }
@@ -53,12 +58,12 @@ public:
     currentVar["dash"] = true; //these values override model.json???
 
     currentVar = ui->initCanvas(parentVar, "pview", UINT16_MAX, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
+      case onUI:
         ui->setLabel(var, "Preview");
         // ui->setComment(var, "Shows the fixture");
         // ui->setComment(var, "Click to enlarge");
         return true;
-      case f_LoopFun: {
+      case onLoop: {
         var["interval"] =  max(eff->fixture.nrOfLeds * web->ws.count()/200, 16U)*10; //interval in ms * 10, not too fast //from cs to ms
 
         web->sendDataWs([this](AsyncWebSocketMessageBuffer * wsBuf) {
@@ -96,19 +101,24 @@ public:
           // send leds preview to clients
           for (size_t i = 0; i < eff->fixture.nrOfLeds; i++)
           {
-            buffer[headerBytes + i*3] = eff->fixture.ledsP[i].red;
-            buffer[headerBytes + i*3+1] = eff->fixture.ledsP[i].green;
-            buffer[headerBytes + i*3+2] = eff->fixture.ledsP[i].blue;
+            if (rgb1B) {
+              //encode rgb in 8 bits: 3 for red, 3 for green, 2 for blue
+              buffer[headerBytes + i] = (eff->fixture.ledsP[i].red & 0xE0) | ((eff->fixture.ledsP[i].green & 0xE0)>>3) | (eff->fixture.ledsP[i].blue >> 6);
+            }
+            else {
+              buffer[headerBytes + i*3] = eff->fixture.ledsP[i].red;
+              buffer[headerBytes + i*3+1] = eff->fixture.ledsP[i].green;
+              buffer[headerBytes + i*3+2] = eff->fixture.ledsP[i].blue;
+            }
           }
-
-        }, headerBytes + eff->fixture.nrOfLeds * 3, true);
+        }, headerBytes + eff->fixture.nrOfLeds * (rgb1B?1:3), true);
         return true;
       }
       default: return false;
     }});
 
     ui->initSelect(currentVar, "viewRot", &viewRotation, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun: {
+      case onUI: {
         ui->setLabel(var, "Rotation");
         // ui->setComment(var, "View rotation");
         JsonArray options = ui->setOptions(var);
@@ -116,15 +126,22 @@ public:
         options.add("Tilt");
         options.add("Pan");
         options.add("Roll");
-        #ifdef STARLEDS_USERMOD_WLEDAUDIO
+        #ifdef STARLIGHT_USERMOD_WLEDAUDIO
           options.add("Moving heads GEQ");
         #endif
         return true; }
       default: return false; 
     }});
 
+    ui->initCheckBox(currentVar, "rgb1B", &rgb1B, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+      case onUI:
+        ui->setLabel(var, "1-byte RGB");
+        return true;
+      default: return false;
+    }});
+
     currentVar = ui->initSelect(parentVar, "fixture", &eff->fixture.fixtureNr, false ,[](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun: {
+      case onUI: {
         // ui->setComment(var, "Fixture to display effect on");
         JsonArray options = ui->setOptions(var);
         files->dirToJson(options, true, "F_"); //only files containing F(ixture), alphabetically
@@ -135,14 +152,13 @@ public:
           web->addResponse("pview", "file", JsonString(fileName, JsonString::Copied));
         }
         return true; }
-      case f_ChangeFun: {
-        eff->fixture.doMap = true;
+      case onChange: {
         eff->fixture.doAllocPins = true;
 
         //remap all leds
-        // for (std::vector<Leds *>::iterator leds=eff->fixture.projections.begin(); leds!=eff->fixture.projections.end(); ++leds) {
-        for (Leds *leds: eff->fixture.projections) {
-          leds->doMap = true;
+        // for (std::vector<Leds *>::iterator leds=eff->fixture.listOfLeds.begin(); leds!=eff->fixture.listOfLeds.end(); ++leds) {
+        for (Leds *leds: eff->fixture.listOfLeds) {
+          leds->triggerMapping();
         }
 
         char fileName[32] = "";
@@ -154,21 +170,15 @@ public:
       default: return false; 
     }}); //fixture
 
-    ui->initCoord3D(currentVar, "fixSize", eff->fixture.fixSize, 0, NUM_LEDS_Max, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
-        mdl->setValue(var, eff->fixture.fixSize);
-        return true;
-      case f_UIFun:
+    ui->initCoord3D(currentVar, "fixSize", &eff->fixture.fixSize, 0, NUM_LEDS_Max, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+      case onUI:
         ui->setLabel(var, "Size");
         return true;
       default: return false;
     }});
 
-    ui->initNumber(currentVar, "fixCount", eff->fixture.nrOfLeds, 0, UINT16_MAX, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_ValueFun:
-        mdl->setValue(var, eff->fixture.nrOfLeds);
-        return true;
-      case f_UIFun:
+    ui->initNumber(currentVar, "fixCount", &eff->fixture.nrOfLeds, 0, UINT16_MAX, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+      case onUI:
         ui->setLabel(var, "Count");
         web->addResponseV(var["id"], "comment", "Max %d", NUM_LEDS_Max);
         return true;
@@ -176,22 +186,26 @@ public:
     }});
 
     ui->initNumber(parentVar, "fps", &eff->fps, 1, 999, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
+      case onUI:
         ui->setComment(var, "Frames per second");
         return true;
       default: return false; 
     }});
 
     ui->initText(parentVar, "realFps", nullptr, 10, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
+      case onUI:
         web->addResponseV(var["id"], "comment", "f(%d leds)", eff->fixture.nrOfLeds);
         return true;
       default: return false;
     }});
 
     ui->initCheckBox(parentVar, "fShow", &eff->fShow, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun:
-        ui->setLabel(var, "FastLed show");
+      case onUI:
+        #ifdef STARLIGHT_CLOCKLESS_LED_DRIVER
+          ui->setLabel(var, "CLD Show");
+        #else
+          ui->setLabel(var, "FastLED Show");
+        #endif
         ui->setComment(var, "dev performance tuning");
         return true;
       default: return false; 

@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      UserModMDNS.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -27,10 +27,6 @@ public:
     escapedMac.replace(":", "");
     escapedMac.toLowerCase();
 
-  }
-
-  void loop() {
-    // SysModule::loop();
   }
 
   void onOffChanged() {

@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModWeb.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -17,8 +17,13 @@
 #include "SysModPins.h"
 
 #include "User/UserModMDNS.h"
+// got multiple definition error here ??? see workaround below
+// #ifdef STARBASE_USERMOD_LIVE
+//   #include "../User/UserModLive.h"
+// #endif
 
 #include "html_ui.h"
+#include "html_newui.h"
 
 #include "AsyncJson.h"
 
@@ -42,51 +47,51 @@ void SysModWeb::setup() {
   parentVar = ui->initSysMod(parentVar, name, 3101);
 
   JsonObject tableVar = ui->initTable(parentVar, "clTbl", nullptr, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Clients");
       return true;
     default: return false;
   }});
 
   ui->initNumber(tableVar, "clNr", UINT16_MAX, 0, 999, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun: {
+    case onSetValue: {
       unsigned8 rowNr = 0; for (auto client:ws.getClients())
         mdl->setValue(var, client->id(), rowNr++);
       return true; }
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Nr");
       return true;
     default: return false;
   }});
 
   ui->initText(tableVar, "clIp", nullptr, 16, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun: {
+    case onSetValue: {
       unsigned8 rowNr = 0; for (auto client:ws.getClients())
         mdl->setValue(var, JsonString(client->remoteIP().toString().c_str(), JsonString::Copied), rowNr++);
       return true; }
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "IP");
       return true;
     default: return false;
   }});
 
   ui->initCheckBox(tableVar, "clIsFull", UINT16_MAX, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun: {
+    case onSetValue: {
       unsigned8 rowNr = 0; for (auto client:ws.getClients())
         mdl->setValue(var, client->queueIsFull(), rowNr++);
       return true; }
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Is full");
       return true;
     default: return false;
   }});
 
   ui->initSelect(tableVar, "clStatus", UINT16_MAX, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun: {
+    case onSetValue: {
       unsigned8 rowNr = 0; for (auto client:ws.getClients())
         mdl->setValue(var, client->status(), rowNr++);
       return true; }
-    case f_UIFun:
+    case onUI:
     {
       ui->setLabel(var, "Status");
       //tbd: not working yet in ui
@@ -100,11 +105,11 @@ void SysModWeb::setup() {
   }});
 
   ui->initNumber(tableVar, "clLength", UINT16_MAX, 0, WS_MAX_QUEUED_MESSAGES, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun: {
+    case onSetValue: {
       unsigned8 rowNr = 0; for (auto client:ws.getClients())
         mdl->setValue(var, client->queueLength(), rowNr++);
       return true; }
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Length");
       return true;
     default: return false;
@@ -113,7 +118,7 @@ void SysModWeb::setup() {
   ui->initNumber(parentVar, "maxQueue", WS_MAX_QUEUED_MESSAGES, 0, WS_MAX_QUEUED_MESSAGES, true);
 
   ui->initText(parentVar, "wsSend", nullptr, 16, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "WS Send");
       // ui->setComment(var, "web socket calls");
       return true;
@@ -121,7 +126,7 @@ void SysModWeb::setup() {
   }});
 
   ui->initText(parentVar, "wsRecv", nullptr, 16, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "WS Recv");
       // ui->setComment(var, "web socket calls");
       return true;
@@ -129,14 +134,14 @@ void SysModWeb::setup() {
   }});
 
   ui->initText(parentVar, "udpSend", nullptr, 16, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "UDP Send");
       return true;
     default: return false;
   }});
 
   ui->initText(parentVar, "udpRecv", nullptr, 16, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "UDP Recv");
       return true;
     default: return false;
@@ -144,8 +149,7 @@ void SysModWeb::setup() {
 
 }
 
-void SysModWeb::loop() {
-  // SysModule::loop();
+void SysModWeb::loop20ms() {
 
   //currently not used as each variable is send individually
   if (this->modelUpdated) {
@@ -160,14 +164,14 @@ void SysModWeb::loop() {
 
     // ppf("SysModWeb clientsChanged\n");
     for (JsonObject childVar: mdl->varChildren("clTbl"))
-      ui->callVarFun(childVar);
+      ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP)
   }
 
 }
 
 void SysModWeb::loop1s() {
   for (JsonObject childVar: mdl->varChildren("clTbl"))
-    ui->callVarFun(childVar);
+    ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP)
 
   mdl->setUIValueV("wsSend", "#: %d /s T: %d B/s B:%d B/s", sendWsCounter, sendWsTBytes, sendWsBBytes);
   sendWsCounter = 0;
@@ -211,6 +215,7 @@ void SysModWeb::connectedChanged() {
     #endif
 
     server.on("/", HTTP_GET, [this](WebRequest *request) {serveIndex(request);});
+    server.on("/newui", HTTP_GET, [this](WebRequest *request) {serveNewUI(request);});
 
     //serve json calls
     server.on("/json", HTTP_GET, [this](WebRequest *request) {serveJson(request);});
@@ -251,7 +256,7 @@ void SysModWeb::wsEvent(WebSocket * ws, WebClient * client, AwsEventType type, v
     getResponseObject()["sysInfo"]["pinTypes"].to<JsonArray>();
     JsonArray pinTypes = getResponseObject()["sysInfo"]["pinTypes"];
     for (int i=0; i<NUM_DIGITAL_PINS; i++) {
-      pinTypes.add(pins->getPinType(i));
+      pinTypes.add(pinsM->getPinType(i));
     }
 
     sendResponseObject(client);
@@ -307,11 +312,11 @@ void SysModWeb::wsEvent(WebSocket * ws, WebClient * client, AwsEventType type, v
             ppf("wsEvent deserializeJson failed with code %s\n", error.c_str());
             client->text("{\"success\":true}"); // we have to send something back otherwise WS connection closes
           } else {
-            bool isUiFun = !responseObject["uiFun"].isNull();
+            bool isOnUI = !responseObject["onUI"].isNull();
             ui->processJson(responseObject); //adds to responseDoc / responseObject
 
             if (responseObject.size()) {
-              sendResponseObject(isUiFun?client:nullptr); //uiFun only send to requesting client async response
+              sendResponseObject(isOnUI?client:nullptr); //onUI only send to requesting client async response
             }
             else {
               ppf("WS_EVT_DATA no responseDoc\n");
@@ -421,7 +426,7 @@ void SysModWeb::sendDataWs(std::function<void(AsyncWebSocketMessageBuffer *)> fi
       for (auto loopClient:ws.getClients()) {
         if (!client || client == loopClient) {
           if (loopClient->status() == WS_CONNECTED && !loopClient->queueIsFull()) { //WS_MAX_QUEUED_MESSAGES / ws.count() / 2)) { //binary is lossy
-            if ((!isBinary || loopClient->queueLength() <= 3)) {
+            if (!isBinary || loopClient->queueLength() <= 3) {
               isBinary?loopClient->binary(wsBuf): loopClient->text(wsBuf);
               sendWsCounter++;
               if (isBinary)
@@ -469,6 +474,22 @@ void SysModWeb::serveIndex(WebRequest *request) {
 
   ppf("!\n");
 }
+void SysModWeb::serveNewUI(WebRequest *request) {
+
+  ppf("Webserver: server.on serveNewUI csdata %d-%d (%s)", PAGE_newui, PAGE_newui_L, request->url().c_str());
+
+  if (captivePortal(request)) return;
+
+  // if (handleIfNoneMatchCacheHeader(request)) return;
+
+  WebResponse *response;
+  response = request->beginResponse_P(200, "text/html", PAGE_newui, PAGE_newui_L);
+  response->addHeader("Content-Encoding","gzip");
+  // setStaticContentCacheHeaders(response);
+  request->send(response);
+
+  ppf("!\n");
+}
 
 void SysModWeb::serveUpload(WebRequest *request, const String& filename, size_t index, byte *data, size_t len, bool final) {
 
@@ -501,6 +522,16 @@ void SysModWeb::serveUpload(WebRequest *request, const String& filename, size_t 
     request->send(200, "text/plain", F("File Uploaded!"));
 
     files->filesChanged = true;
+
+    //if sc files send command to live
+    #ifdef STARBASE_USERMOD_LIVE
+
+      strcpy(lastFileUpdated, filename.c_str()); //workaround 
+
+      // got multiple definition error here ???
+      // if (filename.indexOf(".sc") > 0)
+      //   liveM->run(filename.c_str());
+    #endif
   }
 }
 
@@ -569,7 +600,7 @@ void SysModWeb::jsonHandler(WebRequest *request, JsonVariant json) {
   }
   else {
   
-    if (responseObject.size()) { //responseObject set by processJson e.g. uiFun
+    if (responseObject.size()) { //responseObject set by processJson e.g. onUI
 
       char resStr[200];
       serializeJson(responseObject, resStr, 200);

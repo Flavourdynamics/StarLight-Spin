@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModFiles.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -14,6 +14,7 @@
 #include "SysModWeb.h"
 #include "SysModPrint.h"
 #include "SysModModel.h"
+#include "SysModSystem.h"
 
 // #include <FS.h>
 
@@ -30,19 +31,19 @@ void SysModFiles::setup() {
   parentVar = ui->initSysMod(parentVar, name, 2101);
 
   JsonObject tableVar = ui->initTable(parentVar, "fileTbl", nullptr, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Files");
       ui->setComment(var, "List of files");
       return true;
-    case f_AddRow:
+    case onAddRow:
       rowNr = fileList.size();
       web->getResponseObject()["addRow"]["rowNr"] = rowNr;
       //add a row with all defaults
       return true;
-    case f_DelRow:
+    case onDeleteRow:
       if (rowNr != UINT8_MAX && rowNr < fileList.size()) {
         const char * fileName = fileList[rowNr].name;
-        // ppf("chFun delRow %s[%d] = %s %s\n", mdl->varID(var), rowNr, var["value"].as<String>().c_str(), fileName);
+        // ppf("fileTbl delRow %s[%d] = %s %s\n", mdl->varID(var), rowNr, var["value"].as<String>().c_str(), fileName);
         this->removeFiles(fileName, false);
 
         // print->printVar(var);
@@ -53,55 +54,74 @@ void SysModFiles::setup() {
   }});
 
   ui->initText(tableVar, "flName", nullptr, 32, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
+    case onSetValue:
       for (forUnsigned8 rowNr = 0; rowNr < fileList.size(); rowNr++)
         mdl->setValue(var, JsonString(fileList[rowNr].name, JsonString::Copied), rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Name");
       return true;
     default: return false;
   }});
 
   ui->initNumber(tableVar, "flSize", UINT16_MAX, 0, UINT16_MAX, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
+    case onSetValue:
       for (forUnsigned8 rowNr = 0; rowNr < fileList.size(); rowNr++)
         mdl->setValue(var, fileList[rowNr].size, rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Size (B)");
       return true;
     default: return false;
   }});
 
-  ui->initURL(tableVar, "flLink", nullptr, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
-      for (forUnsigned8 rowNr = 0; rowNr < fileList.size(); rowNr++) {
-        char urlString[32] = "file/";
-        strncat(urlString, fileList[rowNr].name, sizeof(urlString)-1);
-        mdl->setValue(var, JsonString(urlString, JsonString::Copied), rowNr);
-      }
+  // ui->initURL(tableVar, "flLink", nullptr, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+  //   case onSetValue:
+  //     for (forUnsigned8 rowNr = 0; rowNr < fileList.size(); rowNr++) {
+  //       char urlString[32] = "file/";
+  //       strncat(urlString, fileList[rowNr].name, sizeof(urlString)-1);
+  //       mdl->setValue(var, JsonString(urlString, JsonString::Copied), rowNr);
+  //     }
+  //     return true;
+  //   case onUI:
+  //     ui->setLabel(var, "Show");
+  //     return true;
+  //   default: return false;
+  // }});
+
+  ui->initNumber(tableVar, "flTime", UINT16_MAX, 0, UINT16_MAX, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+    case onSetValue:
+      for (forUnsigned8 rowNr = 0; rowNr < fileList.size(); rowNr++)
+        mdl->setValue(var, fileList[rowNr].time, rowNr);
       return true;
-    case f_UIFun:
-      ui->setLabel(var, "Show");
+    case onUI:
+      ui->setLabel(var, "Time");
       return true;
     default: return false;
   }});
 
-  ui->initFile(parentVar, "upload", nullptr, UINT16_MAX, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+  ui->initFileEdit(tableVar, "flEdit", nullptr, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+    case onSetValue:
+      for (forUnsigned8 rowNr = 0; rowNr < fileList.size(); rowNr++)
+        mdl->setValue(var, JsonString(fileList[rowNr].name, JsonString::Copied), rowNr);
+      return true;
+    case onUI:
+      ui->setLabel(var, "Edit");
+      return true;
+    default: return false;
+  }});
+
+  ui->initFileUpload(parentVar, "upload", nullptr, UINT16_MAX, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+    case onUI:
       ui->setLabel(var, "Upload File");
     default: return false;
   }});
 
-  ui->initProgress(parentVar, "drsize", UINT16_MAX, 0, files->totalBytes(), true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
-      mdl->setValue(var, files->usedBytes());
-      return true;
-    case f_UIFun:
+  ui->initProgress(parentVar, "drsize", files->usedBytes(), 0, files->totalBytes(), true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
+    case onUI:
       ui->setLabel(var, "FS Size");
       return true;
-    case f_ChangeFun:
+    case onChange:
       var["max"] = files->totalBytes(); //makes sense?
       web->addResponseV(var["id"], "comment", "%d / %d B", files->usedBytes(), files->totalBytes());
       return true;
@@ -110,8 +130,7 @@ void SysModFiles::setup() {
 
 }
 
-void SysModFiles::loop() {
-  // SysModule::loop();
+void SysModFiles::loop20ms() {
 
   if (filesChanged) {
     filesChanged = false;
@@ -125,21 +144,22 @@ void SysModFiles::loop() {
       FileDetails details;
       strcpy(details.name, file.name());
       details.size = file.size();
+      details.time = file.getLastWrite(); // - millis()/1000; if (details.time < 0) details.time = 0;
       fileList.push_back(details);
       file.close();
       file = root.openNextFile();
     }
     root.close();
 
-    ui->callVarFun("drsize");
+    mdl->setValue("drsize", files->usedBytes());
 
     for (JsonObject childVar: mdl->varChildren("fileTbl"))
-      ui->callVarFun(childVar);
+      ui->callVarFun(childVar, UINT8_MAX, onSetValue); //set the value (WIP)
   }
 }
 
 void SysModFiles::loop10s() {
-  ui->callVarFun("drsize");
+  mdl->setValue("drsize", files->usedBytes());
 }
 
 bool SysModFiles::remove(const char * path) {
@@ -189,25 +209,26 @@ void SysModFiles::dirToJson(JsonArray array, bool nameOnly, const char * filter)
   root.close();
 }
 
-bool SysModFiles::seqNrToName(char * fileName, size_t seqNr) {
+bool SysModFiles::seqNrToName(char * fileName, size_t seqNr, const char * filter) {
 
   File root = LittleFS.open("/");
   File file = root.openNextFile();
 
   size_t counter = 0;
   while (file) {
-    if (counter == seqNr) {
-      // ppf("seqNrToName: %d %s %d\n", seqNr, file.name(), file.size());
-      root.close();
-      strncat(fileName, "/", 31); //add root prefix, fileName is 32 bytes but sizeof doesn't know so cheating
-      strncat(fileName, file.name(), 31);
-      file.close();
-      return true;
+    if (filter == nullptr || strstr(file.name(), filter) != nullptr) {
+      if (counter == seqNr) {
+        // ppf("seqNrToName: %d %s %d\n", seqNr, file.name(), file.size());
+        root.close();
+        strncat(fileName, "/", 31); //add root prefix, fileName is 32 bytes but sizeof doesn't know so cheating
+        strncat(fileName, file.name(), 31);
+        file.close();
+        return true;
+      }
+      counter++;
     }
-
     file.close();
     file = root.openNextFile();
-    counter++;
   }
 
   root.close();

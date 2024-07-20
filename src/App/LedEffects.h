@@ -1,23 +1,24 @@
 /*
-   @title     StarLeds
+   @title     StarLight
    @file      LedEffects.h
-   @date      20240228
-   @repo      https://github.com/MoonModules/StarLeds
-   @Authors   https://github.com/MoonModules/StarLeds/commits/main
-   @Copyright © 2024 Github StarLeds Commit Authors
+   @date      20240720
+   @repo      https://github.com/MoonModules/StarLight
+   @Authors   https://github.com/MoonModules/StarLight/commits/main
+   @Copyright © 2024 Github StarLight Commit Authors
    @license   GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
    @license   For non GPL-v3 usage, commercial licenses must be purchased. Contact moonmodules@icloud.com
 */
 
-#ifdef STARLEDS_USERMOD_WLEDAUDIO
+#ifdef STARLIGHT_USERMOD_WLEDAUDIO
   #include "../User/UserModWLEDAudio.h"
 #endif
 #ifdef STARBASE_USERMOD_E131
   #include "../User/UserModE131.h"
 #endif
 
-uint8_t gHue = 0; // rotating "base color" used by many of the patterns
-unsigned long call = 0; //not used at the moment (don't use in effect calculations), well this is not entirely true.
+#ifdef STARBASE_USERMOD_MPU6050
+  #include "../User/UserModMPU6050.h"
+#endif
 
 //utility function
 float distance(float x1, float y1, float z1, float x2, float y2, float z2) {
@@ -37,7 +38,7 @@ public:
 
   virtual void controls(Leds &leds, JsonObject parentVar) {
     ui->initSelect(parentVar, "pal", 4, false, [&leds](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) { //varFun
-      case f_UIFun: {
+      case onUI: {
         ui->setLabel(var, "Palette");
         JsonArray options = ui->setOptions(var);
         options.add("CloudColors");
@@ -50,7 +51,7 @@ public:
         options.add("HeatColors");
         options.add("RandomColors");
         return true; }
-      case f_ChangeFun:
+      case onChange:
         switch (var["value"][rowNr].as<uint8_t>()) {
           case 0: leds.palette = CloudColors_p; break;
           case 1: leds.palette = LavaColors_p; break;
@@ -82,50 +83,118 @@ class SolidEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t red = leds.sharedData.read<uint8_t>();
-    uint8_t green = leds.sharedData.read<uint8_t>();
-    uint8_t blue = leds.sharedData.read<uint8_t>();
+    uint8_t red = leds.effectData.read<uint8_t>();
+    uint8_t green = leds.effectData.read<uint8_t>();
+    uint8_t blue = leds.effectData.read<uint8_t>();
 
     CRGB color = CRGB(red, green, blue);
     leds.fill_solid(color);
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "Red", leds.sharedData.write<uint8_t>(182));
-    ui->initSlider(parentVar, "Green", leds.sharedData.write<uint8_t>(15));
-    ui->initSlider(parentVar, "Blue", leds.sharedData.write<uint8_t>(98));
+    ui->initSlider(parentVar, "Red", leds.effectData.write<uint8_t>(182));
+    ui->initSlider(parentVar, "Green", leds.effectData.write<uint8_t>(15));
+    ui->initSlider(parentVar, "Blue", leds.effectData.write<uint8_t>(98));
   }
 };
 
 class RainbowEffect: public Effect {
-public:
-  const char * name() {return "Rainbow";}
-  uint8_t dim() {return _1D;}
-  const char * tags() {return "⚡";}
+  const char * name() {return "Rainbow";} //make one rainbow? remove the fastled rainbow?
+  uint8_t      dim()  {return _1D;}
+  const char * tags() {return "💡";} //💡 means wled origin
 
   void loop(Leds &leds) {
-    // FastLED's built-in rainbow generator
-    leds.fill_rainbow(gHue, 7);
+    // UI Variables
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t scale = leds.effectData.read<uint8_t>();
+
+    uint16_t counter = (sys->now * ((speed >> 2) +2)) & 0xFFFF;
+    counter = counter >> 8;
+
+    for (forUnsigned16 i = 0; i < leds.nrOfLeds; i++) {
+      uint8_t index = (i * (16 << (scale / 29)) / leds.nrOfLeds) + counter;
+      // leds.setPixelColor(i, ColorFromPalette(leds.palette, index));
+      leds.setPixelColorPal(i, index);
+    }
   }
 
-  void controls(Leds &leds, JsonObject parentVar) {} //so no palette control is created
+  void controls(Leds &leds, JsonObject parentVar) {
+    Effect::controls(leds, parentVar);
+    ui->initSlider(parentVar, "Speed", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "Scale", leds.effectData.write<uint8_t>(128));
+  }
 };
 
-class RainbowWithGlitterEffect: public RainbowEffect {
+class RainbowWithGlitterEffect: public Effect {
   const char * name() {return "Rainbow with glitter";}
   uint8_t dim() {return _1D;}
-  const char * tags() {return "⚡";}
+  const char * tags() {return "⚡";} //⚡ means FastLED origin
 
   void loop(Leds &leds) {
+    uint8_t glitter = leds.effectData.read<bool>();
+
     // built-in FastLED rainbow, plus some random sparkly glitter
-    RainbowEffect::loop(leds);
-    addGlitter(leds, 80);
+    // FastLED's built-in rainbow generator
+    leds.fill_rainbow(sys->now/50, 7);
+
+    if (glitter)
+      addGlitter(leds, 80);
   }
+
   void addGlitter(Leds &leds, fract8 chanceOfGlitter) 
   {
     if( random8() < chanceOfGlitter) {
       leds[ random16(leds.nrOfLeds) ] += CRGB::White;
     }
+  }
+
+  void controls(Leds &leds, JsonObject parentVar) {
+    //no palette control is created
+    ui->initCheckBox(parentVar, "glitter", leds.effectData.write<bool>(false));
+  }
+
+};
+
+// Best of both worlds from Palette and Spot effects. By Aircoookie
+class FlowEffect: public Effect {
+  const char * name() {return "Flow";}
+  uint8_t      dim()  {return _1D;}
+  const char * tags() {return "💡";} //💡 means wled origin
+
+  void loop(Leds &leds) {
+    // UI Variables
+    uint8_t speed   = leds.effectData.read<uint8_t>();
+    uint8_t zonesUI = leds.effectData.read<uint8_t>();
+
+    uint16_t counter = 0;
+    if (speed != 0) {
+      counter = sys->now * ((speed >> 2) +1);
+      counter = counter >> 8;
+    }
+
+    uint16_t maxZones = leds.nrOfLeds / 6; //only looks good if each zone has at least 6 LEDs
+    uint16_t zones    = (zonesUI * maxZones) >> 8;
+    if (zones & 0x01) zones++; //zones must be even
+    if (zones < 2)    zones = 2;
+    uint16_t zoneLen = leds.nrOfLeds / zones;
+    uint16_t offset  = (leds.nrOfLeds - zones * zoneLen) >> 1;
+
+    leds.fill_solid(ColorFromPalette(leds.palette, -counter));
+
+    for (int z = 0; z < zones; z++) {
+      uint16_t pos = offset + z * zoneLen;
+      for (int i = 0; i < zoneLen; i++) {
+        uint8_t  colorIndex = (i * 255 / zoneLen) - counter;
+        uint16_t led = (z & 0x01) ? i : (zoneLen -1) -i;
+        leds[pos + led] = ColorFromPalette(leds.palette, colorIndex);
+      }
+    }
+  }
+  
+  void controls(Leds &leds, JsonObject parentVar) {
+    Effect::controls(leds, parentVar);
+    ui->initSlider(parentVar, "Speed", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "Zones", leds.effectData.write<uint8_t>(128));
   }
 };
 
@@ -137,16 +206,16 @@ class SinelonEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t bpm = leds.sharedData.read<uint8_t>();
+    uint8_t bpm = leds.effectData.read<uint8_t>();
 
     leds.fadeToBlackBy(20);
 
     int pos = beatsin16( bpm, 0, leds.nrOfLeds-1 );
-    leds[pos] = leds.getPixelColor(pos) + CHSV( gHue, 255, 255);
+    leds[pos] = leds.getPixelColor(pos) + CHSV( sys->now/50, 255, 255);
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "BPM", leds.sharedData.write<uint8_t>(60));
+    ui->initSlider(parentVar, "BPM", leds.effectData.write<uint8_t>(60));
   }
 }; //Sinelon
 
@@ -159,7 +228,7 @@ class ConfettiEffect: public Effect {
     // random colored speckles that blink in and fade smoothly
     leds.fadeToBlackBy(10);
     int pos = random16(leds.nrOfLeds);
-    leds[pos] += CHSV( gHue + random8(64), 200, 255);
+    leds[pos] += CHSV( sys->now/50 + random8(64), 200, 255);
   }
 
   void controls(Leds &leds, JsonObject parentVar) {} //so no palette control is created
@@ -175,7 +244,7 @@ class BPMEffect: public Effect {
     uint8_t BeatsPerMinute = 62;
     uint8_t beat = beatsin8( BeatsPerMinute, 64, 255);
     for (forUnsigned16 i = 0; i < leds.nrOfLeds; i++) { //9948
-      leds[i] = ColorFromPalette(leds.palette, gHue+(i*2), beat-gHue+(i*10));
+      leds[i] = ColorFromPalette(leds.palette, sys->now/50+(i*2), beat-sys->now/50+(i*10));
     }
   }
   
@@ -210,25 +279,25 @@ class RunningEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t bpm = leds.sharedData.read<uint8_t>();
-    uint8_t fade = leds.sharedData.read<uint8_t>();
+    uint8_t bpm = leds.effectData.read<uint8_t>();
+    uint8_t fade = leds.effectData.read<uint8_t>();
 
     leds.fadeToBlackBy(fade); //physical leds
     int pos = map(beat16( bpm), 0, UINT16_MAX, 0, leds.nrOfLeds-1 ); //instead of call%leds.nrOfLeds
     // int pos2 = map(beat16( bpm, 1000), 0, UINT16_MAX, 0, leds.nrOfLeds-1 ); //one second later
-    leds[pos] = CHSV( gHue, 255, 255); //make sure the right physical leds get their value
-    // leds[leds.nrOfLeds -1 - pos2] = CHSV( gHue, 255, 255); //make sure the right physical leds get their value
+    leds[pos] = CHSV( sys->now/50, 255, 255); //make sure the right physical leds get their value
+    // leds[leds.nrOfLeds -1 - pos2] = CHSV( sys->now/50, 255, 255); //make sure the right physical leds get their value
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "BPM", leds.sharedData.write<uint8_t>(60), 0, 255, false, [](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) { //varFun
-      case f_UIFun:
+    ui->initSlider(parentVar, "BPM", leds.effectData.write<uint8_t>(60), 0, 255, false, [](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) { //varFun
+      case onUI:
         ui->setComment(var, "in BPM!");
         return true;
       default: return false;
     }});
     //tbd: check if memory is freed!
-    ui->initSlider(parentVar, "fade", leds.sharedData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "fade", leds.effectData.write<uint8_t>(128));
   }
 };
 
@@ -248,7 +317,7 @@ class RingRandomFlow: public RingEffect {
 
   void loop(Leds &leds) {
     //binding of loop persistent values (pointers)
-    uint8_t *hue = leds.sharedData.readWrite<uint8_t>(leds.nrOfLeds); //array
+    uint8_t *hue = leds.effectData.readWrite<uint8_t>(leds.nrOfLeds); //array
 
     hue[0] = random(0, 255);
     for (int r = 0; r < leds.nrOfLeds; r++) {
@@ -279,11 +348,11 @@ class BouncingBalls: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t grav = leds.sharedData.read<uint8_t>();
-    uint8_t numBalls = leds.sharedData.read<uint8_t>();
+    uint8_t grav = leds.effectData.read<uint8_t>();
+    uint8_t numBalls = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers)
-    Ball *balls = leds.sharedData.readWrite<Ball>(maxNumBalls); //array
+    Ball *balls = leds.effectData.readWrite<Ball>(maxNumBalls); //array
 
     leds.fill_solid(CRGB::Black);
 
@@ -292,7 +361,7 @@ class BouncingBalls: public Effect {
     // const bool hasCol2 = SEGCOLOR(2);
     const unsigned long time = sys->now;
 
-    //not necessary as sharedData is cleared at setup(Leds &leds)
+    //not necessary as effectData is cleared at setup(Leds &leds)
     // if (call == 0) {
     //   for (size_t i = 0; i < maxNumBalls; i++) balls[i].lastBounceTime = time;
     // }
@@ -327,7 +396,7 @@ class BouncingBalls: public Effect {
 
       int pos = roundf(balls[i].height * (leds.nrOfLeds - 1));
 
-      CRGB color = ColorFromPalette(leds.palette, i*(256/max(numBalls, (uint8_t)8)), 255); //error: no matching function for call to 'max(uint8_t&, int)'
+      CRGB color = ColorFromPalette(leds.palette, i*(256/max(numBalls, (uint8_t)8))); //error: no matching function for call to 'max(uint8_t&, int)'
 
       leds[pos] = color;
       // if (leds.nrOfLeds<32) leds.setPixelColor(indexToVStrip(pos, stripNr), color); // encode virtual strip into index
@@ -337,8 +406,8 @@ class BouncingBalls: public Effect {
 
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "gravity", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "balls", leds.sharedData.write<uint8_t>(8), 1, 16);
+    ui->initSlider(parentVar, "gravity", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "balls", leds.effectData.write<uint8_t>(8), 1, 16);
   }
 }; // BouncingBalls
 
@@ -409,13 +478,13 @@ class RainEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t intensity = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t intensity = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    uint16_t *aux0 = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *aux1 = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *step = leds.sharedData.readWrite<uint16_t>();
+    uint16_t *aux0 = leds.effectData.readWrite<uint16_t>();
+    uint16_t *aux1 = leds.effectData.readWrite<uint16_t>();
+    uint16_t *step = leds.effectData.readWrite<uint16_t>();
 
     // if(SEGENV.call == 0) {
       // SEGMENT.fill(BLACK);
@@ -451,8 +520,8 @@ class RainEffect: public Effect {
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128), 1, 255);
-    ui->initSlider(parentVar, "intensity", leds.sharedData.write<uint8_t>(64), 1, 128);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(128), 1, 255);
+    ui->initSlider(parentVar, "intensity", leds.effectData.write<uint8_t>(64), 1, 128);
   }
 }; // RainEffect
 
@@ -473,13 +542,13 @@ class DripEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t grav = leds.sharedData.read<uint8_t>();
-    uint8_t drips = leds.sharedData.read<uint8_t>();
-    uint8_t swell = leds.sharedData.read<uint8_t>();
-    bool invert = leds.sharedData.read<bool>();
+    uint8_t grav = leds.effectData.read<uint8_t>();
+    uint8_t drips = leds.effectData.read<uint8_t>();
+    uint8_t swell = leds.effectData.read<uint8_t>();
+    bool invert = leds.effectData.read<bool>();
 
     //binding of loop persistent values (pointers)
-    Spark* drops = leds.sharedData.readWrite<Spark>(maxNumDrops);
+    Spark* drops = leds.effectData.readWrite<Spark>(maxNumDrops);
 
     // leds.fadeToBlackBy(90);
     leds.fill_solid(CRGB::Black);
@@ -545,10 +614,10 @@ class DripEffect: public Effect {
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "gravity", leds.sharedData.write<uint8_t>(128), 1, 255);
-    ui->initSlider(parentVar, "drips", leds.sharedData.write<uint8_t>(4), 1, 6);
-    ui->initSlider(parentVar, "swell", leds.sharedData.write<uint8_t>(4), 1, 6);
-    ui->initCheckBox(parentVar, "invert", leds.sharedData.write<bool>(false));
+    ui->initSlider(parentVar, "gravity", leds.effectData.write<uint8_t>(128), 1, 255);
+    ui->initSlider(parentVar, "drips", leds.effectData.write<uint8_t>(4), 1, 6);
+    ui->initSlider(parentVar, "swell", leds.effectData.write<uint8_t>(4), 1, 6);
+    ui->initCheckBox(parentVar, "invert", leds.effectData.write<bool>(false));
   }
 }; // DripEffect
 
@@ -559,13 +628,13 @@ class HeartBeatEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t intensity = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t intensity = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    bool *isSecond = leds.sharedData.readWrite<bool>();
-    uint16_t *bri_lower = leds.sharedData.readWrite<uint16_t>();
-    unsigned long *step = leds.sharedData.readWrite<unsigned long>();
+    bool *isSecond = leds.effectData.readWrite<bool>();
+    uint16_t *bri_lower = leds.effectData.readWrite<uint16_t>();
+    unsigned long *step = leds.effectData.readWrite<unsigned long>();
 
     uint8_t bpm = 40 + (speed);
     uint32_t msPerBeat = (60000L / bpm);
@@ -592,8 +661,8 @@ class HeartBeatEffect: public Effect {
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(15), 0, 31);
-    ui->initSlider(parentVar, "intensity", leds.sharedData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(15), 0, 31);
+    ui->initSlider(parentVar, "intensity", leds.effectData.write<uint8_t>(128));
   }
 }; // HeartBeatEffect
 
@@ -608,14 +677,14 @@ class FreqMatrix: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t fx = leds.sharedData.read<uint8_t>();
-    uint8_t lowBin = leds.sharedData.read<uint8_t>();
-    uint8_t highBin = leds.sharedData.read<uint8_t>();
-    uint8_t sensitivity10 = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t fx = leds.effectData.read<uint8_t>();
+    uint8_t lowBin = leds.effectData.read<uint8_t>();
+    uint8_t highBin = leds.effectData.read<uint8_t>();
+    uint8_t sensitivity10 = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    uint8_t *aux0 = leds.sharedData.readWrite<uint8_t>();
+    uint8_t *aux0 = leds.effectData.readWrite<uint8_t>();
 
     uint8_t secondHand = (speed < 255) ? (micros()/(256-speed)/500 % 16) : 0;
     if((speed > 254) || (*aux0 != secondHand)) {   // WLEDMM allow run run at full speed
@@ -651,11 +720,11 @@ class FreqMatrix: public Effect {
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(255));
-    ui->initSlider(parentVar, "Sound effect", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "Low bin", leds.sharedData.write<uint8_t>(18));
-    ui->initSlider(parentVar, "High bin", leds.sharedData.write<uint8_t>(48));
-    ui->initSlider(parentVar, "Sensivity", leds.sharedData.write<uint8_t>(30), 10, 100);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(255));
+    ui->initSlider(parentVar, "Sound effect", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "Low bin", leds.effectData.write<uint8_t>(18));
+    ui->initSlider(parentVar, "High bin", leds.effectData.write<uint8_t>(48));
+    ui->initSlider(parentVar, "Sensivity", leds.effectData.write<uint8_t>(30), 10, 100);
   }
 };
 
@@ -669,12 +738,12 @@ class PopCorn: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t numPopcorn = leds.sharedData.read<uint8_t>();
-    uint8_t useaudio = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t numPopcorn = leds.effectData.read<uint8_t>();
+    uint8_t useaudio = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers)
-    Spark *popcorn = leds.sharedData.readWrite<Spark>(maxNumPopcorn); //array
+    Spark *popcorn = leds.effectData.readWrite<Spark>(maxNumPopcorn); //array
 
     leds.fill_solid(CRGB::Black);
 
@@ -721,7 +790,7 @@ class PopCorn: public Effect {
         // uint32_t col = SEGMENT.color_wheel(popcorn[i].colIndex);
         // if (!SEGMENT.palette && popcorn[i].colIndex < NUM_COLORS) col = SEGCOLOR(popcorn[i].colIndex);
         uint16_t ledIndex = popcorn[i].pos;
-        CRGB col = ColorFromPalette(leds.palette, popcorn[i].colIndex*(256/maxNumPopcorn), 255);
+        CRGB col = ColorFromPalette(leds.palette, popcorn[i].colIndex*(256/maxNumPopcorn));
         if (ledIndex < leds.nrOfLeds) leds.setPixelColor(ledIndex, col);
       }
     }
@@ -729,9 +798,9 @@ class PopCorn: public Effect {
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "corns", leds.sharedData.write<uint8_t>(maxNumPopcorn/2), 1, maxNumPopcorn);
-    ui->initCheckBox(parentVar, "useaudio", leds.sharedData.write<bool>(false));
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "corns", leds.effectData.write<uint8_t>(maxNumPopcorn/2), 1, maxNumPopcorn);
+    ui->initCheckBox(parentVar, "useaudio", leds.effectData.write<bool>(false));
   }
 }; //PopCorn
 
@@ -742,12 +811,12 @@ class NoiseMeter: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t fadeRate = leds.sharedData.read<uint8_t>();
-    uint8_t width = leds.sharedData.read<uint8_t>();
+    uint8_t fadeRate = leds.effectData.read<uint8_t>();
+    uint8_t width = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    uint8_t *aux0 = leds.sharedData.readWrite<uint8_t>();
-    uint8_t *aux1 = leds.sharedData.readWrite<uint8_t>();
+    uint8_t *aux0 = leds.effectData.readWrite<uint8_t>();
+    uint8_t *aux1 = leds.effectData.readWrite<uint8_t>();
 
     leds.fadeToBlackBy(fadeRate);
 
@@ -767,8 +836,8 @@ class NoiseMeter: public Effect {
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "fadeRate", leds.sharedData.write<uint8_t>(248), 200, 254);
-    ui->initSlider(parentVar, "width", leds.sharedData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "fadeRate", leds.effectData.write<uint8_t>(248), 200, 254);
+    ui->initSlider(parentVar, "width", leds.effectData.write<uint8_t>(128));
   }
 }; //NoiseMeter
 
@@ -779,8 +848,8 @@ class AudioRings: public RingEffect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    bool inWards = leds.sharedData.read<bool>();
-    uint8_t nrOfRings = leds.sharedData.read<uint8_t>();
+    bool inWards = leds.effectData.read<bool>();
+    uint8_t nrOfRings = leds.effectData.read<uint8_t>();
 
     for (int i = 0; i < nrOfRings; i++) {
 
@@ -809,15 +878,15 @@ class AudioRings: public RingEffect {
   void setRingFromFtt(Leds &leds, int index, int ring) {
     byte val = wledAudioMod->fftResults[index];
     // Visualize leds to the beat
-    CRGB color = ColorFromPalette(leds.palette, val, 255);
+    CRGB color = ColorFromPalette(leds.palette, val);
     color.nscale8_video(val);
     setRing(leds, ring, color);
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initCheckBox(parentVar, "inWards", leds.sharedData.write<bool>(true));
-    ui->initSlider(parentVar, "rings", leds.sharedData.write<uint8_t>(7), 1, 50);
+    ui->initCheckBox(parentVar, "inWards", leds.effectData.write<bool>(true));
+    ui->initSlider(parentVar, "rings", leds.effectData.write<uint8_t>(7), 1, 50);
   }
 };
 
@@ -832,12 +901,12 @@ class DJLight: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    bool candyFactory = leds.sharedData.read<bool>();
-    uint8_t fade = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    bool candyFactory = leds.effectData.read<bool>();
+    uint8_t fade = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    uint8_t *aux0 = leds.sharedData.readWrite<uint8_t>();
+    uint8_t *aux0 = leds.effectData.readWrite<uint8_t>();
 
     const int mid = leds.nrOfLeds / 2;
 
@@ -893,9 +962,9 @@ class DJLight: public Effect {
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(255));
-    ui->initCheckBox(parentVar, "candyFactory", leds.sharedData.write<bool>(true));
-    ui->initSlider(parentVar, "fade", leds.sharedData.write<uint8_t>(4), 0, 10);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(255));
+    ui->initCheckBox(parentVar, "candyFactory", leds.effectData.write<bool>(true));
+    ui->initSlider(parentVar, "fade", leds.effectData.write<uint8_t>(4), 0, 10);
   }
 }; //DJLight
 
@@ -905,38 +974,38 @@ class DJLight: public Effect {
 //2D Effects
 //==========
 
-class Lines: public Effect {
+class LinesEffect: public Effect {
   const char * name() {return "Lines";}
   uint8_t dim() {return _2D;}
   const char * tags() {return "💫";}
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t bpm = leds.sharedData.read<uint8_t>();
-    bool vertical = leds.sharedData.read<bool>();
+    uint8_t bpm = leds.effectData.read<uint8_t>();
+    bool vertical = leds.effectData.read<bool>();
 
     leds.fadeToBlackBy(100);
 
     Coord3D pos = {0,0,0};
     if (vertical) {
-      pos.x = map(beat16( bpm), 0, UINT16_MAX, 0, leds.size.x-1 ); //instead of call%width
+      pos.x = map(beat16( bpm), 0, UINT16_MAX, 0, leds.size.x ); //instead of call%width
 
       for (pos.y = 0; pos.y <  leds.size.y; pos.y++) {
-        leds[pos] = CHSV( gHue, 255, 255);
+        leds[pos] = CHSV( sys->now/50, 255, 255);
       }
     } else {
-      pos.y = map(beat16( bpm), 0, UINT16_MAX, 0, leds.size.y-1 ); //instead of call%height
+      pos.y = map(beat16( bpm), 0, UINT16_MAX, 0, leds.size.y ); //instead of call%height
       for (pos.x = 0; pos.x <  leds.size.x; pos.x++) {
-        leds[pos] = CHSV( gHue, 255, 255);
+        leds[pos] = CHSV( sys->now/50, 255, 255);
       }
     }
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "BPM", leds.sharedData.write<uint8_t>(60));
-    ui->initCheckBox(parentVar, "Vertical", leds.sharedData.write<bool>(true));
+    ui->initSlider(parentVar, "BPM", leds.effectData.write<uint8_t>(60));
+    ui->initCheckBox(parentVar, "Vertical", leds.effectData.write<bool>(true));
   }
-}; // Lines
+}; // LinesEffect
 
 // By: Stepko https://editor.soulmatelights.com/gallery/1012 , Modified by: Andrew Tuline
 class BlackHole: public Effect {
@@ -946,11 +1015,11 @@ class BlackHole: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t fade = leds.sharedData.read<uint8_t>();
-    uint8_t outX = leds.sharedData.read<uint8_t>();
-    uint8_t outY = leds.sharedData.read<uint8_t>();
-    uint8_t inX = leds.sharedData.read<uint8_t>();
-    uint8_t inY = leds.sharedData.read<uint8_t>();
+    uint8_t fade = leds.effectData.read<uint8_t>();
+    uint8_t outX = leds.effectData.read<uint8_t>();
+    uint8_t outY = leds.effectData.read<uint8_t>();
+    uint8_t inX = leds.effectData.read<uint8_t>();
+    uint8_t inY = leds.effectData.read<uint8_t>();
 
     uint16_t x, y;
 
@@ -977,11 +1046,11 @@ class BlackHole: public Effect {
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "fade", leds.sharedData.write<uint8_t>(16), 0, 32);
-    ui->initSlider(parentVar, "outX", leds.sharedData.write<uint8_t>(16), 0, 32);
-    ui->initSlider(parentVar, "outY", leds.sharedData.write<uint8_t>(16), 0, 32);
-    ui->initSlider(parentVar, "inX", leds.sharedData.write<uint8_t>(16), 0, 32);
-    ui->initSlider(parentVar, "inY", leds.sharedData.write<uint8_t>(16), 0, 32);
+    ui->initSlider(parentVar, "fade", leds.effectData.write<uint8_t>(16), 0, 32);
+    ui->initSlider(parentVar, "outX", leds.effectData.write<uint8_t>(16), 0, 32);
+    ui->initSlider(parentVar, "outY", leds.effectData.write<uint8_t>(16), 0, 32);
+    ui->initSlider(parentVar, "inX", leds.effectData.write<uint8_t>(16), 0, 32);
+    ui->initSlider(parentVar, "inY", leds.effectData.write<uint8_t>(16), 0, 32);
   }
 }; // BlackHole
 
@@ -993,9 +1062,9 @@ class DNA: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t blur = leds.sharedData.read<uint8_t>();
-    uint8_t phases = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t blur = leds.effectData.read<uint8_t>();
+    uint8_t phases = leds.effectData.read<uint8_t>();
 
     leds.fadeToBlackBy(64);
 
@@ -1006,17 +1075,17 @@ class DNA: public Effect {
       //32: 4 * i
       //16: 8 * i
       phase = i * 127 / (leds.size.x-1) * phases / 64;
-      leds.setPixelColor(leds.XY(i, beatsin8(speed, 0, leds.size.y-1, 0, phase    )), ColorFromPalette(leds.palette, i*5+ sys->now /17, beatsin8(5, 55, 255, 0, i*10), LINEARBLEND));
-      leds.setPixelColor(leds.XY(i, beatsin8(speed, 0, leds.size.y-1, 0, phase+128)), ColorFromPalette(leds.palette, i*5+128+ sys->now /17, beatsin8(5, 55, 255, 0, i*10+128), LINEARBLEND));
+      leds.setPixelColor(leds.XY(i, beatsin8(speed, 0, leds.size.y-1, 0, phase    )), ColorFromPalette(leds.palette, i*5+ sys->now /17, beatsin8(5, 55, 255, 0, i*10)));
+      leds.setPixelColor(leds.XY(i, beatsin8(speed, 0, leds.size.y-1, 0, phase+128)), ColorFromPalette(leds.palette, i*5+128+ sys->now /17, beatsin8(5, 55, 255, 0, i*10+128)));
     }
     leds.blur2d(blur);
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(16), 0, 32);
-    ui->initSlider(parentVar, "blur", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "phases", leds.sharedData.write<uint8_t>(64));
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(16), 0, 32);
+    ui->initSlider(parentVar, "blur", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "phases", leds.effectData.write<uint8_t>(64));
   }
 }; // DNA
 
@@ -1032,8 +1101,8 @@ class DistortionWaves: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>(); 
-    uint8_t scale = leds.sharedData.read<uint8_t>(); 
+    uint8_t speed = leds.effectData.read<uint8_t>(); 
+    uint8_t scale = leds.effectData.read<uint8_t>(); 
 
     uint8_t  w = 2;
 
@@ -1075,8 +1144,8 @@ class DistortionWaves: public Effect {
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(4), 0, 8);
-    ui->initSlider(parentVar, "scale", leds.sharedData.write<uint8_t>(4), 0, 8);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(4), 0, 8);
+    ui->initSlider(parentVar, "scale", leds.effectData.write<uint8_t>(4), 0, 8);
   }
 }; // DistortionWaves
 
@@ -1094,18 +1163,18 @@ class Octopus: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t offsetX = leds.sharedData.read<uint8_t>();
-    uint8_t offsetY = leds.sharedData.read<uint8_t>();
-    uint8_t legs = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t offsetX = leds.effectData.read<uint8_t>();
+    uint8_t offsetY = leds.effectData.read<uint8_t>();
+    uint8_t legs = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    Map_t    *rMap = leds.sharedData.readWrite<Map_t>(leds.size.x * leds.size.y); //array
-    uint8_t *offsX = leds.sharedData.readWrite<uint8_t>();
-    uint8_t *offsY = leds.sharedData.readWrite<uint8_t>();
-    uint16_t *aux0 = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *aux1 = leds.sharedData.readWrite<uint16_t>();
-    uint32_t *step = leds.sharedData.readWrite<uint32_t>();
+    Map_t    *rMap = leds.effectData.readWrite<Map_t>(leds.size.x * leds.size.y); //array
+    uint8_t *offsX = leds.effectData.readWrite<uint8_t>();
+    uint8_t *offsY = leds.effectData.readWrite<uint8_t>();
+    uint16_t *aux0 = leds.effectData.readWrite<uint16_t>();
+    uint16_t *aux1 = leds.effectData.readWrite<uint16_t>();
+    uint32_t *step = leds.effectData.readWrite<uint32_t>();
 
     const uint8_t mapp = 180 / max(leds.size.x,leds.size.y);
 
@@ -1122,8 +1191,11 @@ class Octopus: public Effect {
       const uint8_t C_Y = leds.size.y / 2 + (offsetY - 128)*leds.size.y/255;
       for (pos.x = 0; pos.x < leds.size.x; pos.x++) {
         for (pos.y = 0; pos.y < leds.size.y; pos.y++) {
-          rMap[leds.XY(pos.x, pos.y)].angle = 40.7436f * atan2f(pos.y - C_Y, pos.x - C_X); // avoid 128*atan2()/PI
-          rMap[leds.XY(pos.x, pos.y)].radius = hypotf(pos.x - C_X, pos.y - C_Y) * mapp; //thanks Sutaburosu
+          uint16_t indexV = leds.XY(pos.x, pos.y);
+          if (indexV < leds.size.x * leds.size.y) { //excluding UINT16_MAX from XY if out of bounds due to projection
+            rMap[indexV].angle = 40.7436f * atan2f(pos.y - C_Y, pos.x - C_X); // avoid 128*atan2()/PI
+            rMap[indexV].radius = hypotf(pos.x - C_X, pos.y - C_Y) * mapp; //thanks Sutaburosu
+          }
         }
       }
     }
@@ -1132,13 +1204,16 @@ class Octopus: public Effect {
 
     for (pos.x = 0; pos.x < leds.size.x; pos.x++) {
       for (pos.y = 0; pos.y < leds.size.y; pos.y++) {
-        byte angle = rMap[leds.XY(pos.x,pos.y)].angle;
-        byte radius = rMap[leds.XY(pos.x,pos.y)].radius;
-        //CRGB c = CHSV(*step / 2 - radius, 255, sin8(sin8((angle * 4 - radius) / 4 + *step) + radius - *step * 2 + angle * (SEGMENT.custom3/3+1)));
-        uint16_t intensity = sin8(sin8((angle * 4 - radius) / 4 + *step/2) + radius - *step + angle * legs);
-        intensity = map(intensity*intensity, 0, UINT16_MAX, 0, 255); // add a bit of non-linearity for cleaner display
-        CRGB color = ColorFromPalette(leds.palette, *step / 2 - radius, intensity);
-        leds[pos] = color;
+        uint16_t indexV = leds.XY(pos.x, pos.y);
+        if (indexV < leds.size.x * leds.size.y) { //excluding UINT16_MAX from XY if out of bounds due to projection
+          byte angle = rMap[indexV].angle;
+          byte radius = rMap[indexV].radius;
+          //CRGB c = CHSV(*step / 2 - radius, 255, sin8(sin8((angle * 4 - radius) / 4 + *step) + radius - *step * 2 + angle * (SEGMENT.custom3/3+1)));
+          uint16_t intensity = sin8(sin8((angle * 4 - radius) / 4 + *step/2) + radius - *step + angle * legs);
+          intensity = map(intensity*intensity, 0, UINT16_MAX, 0, 255); // add a bit of non-linearity for cleaner display
+          CRGB color = ColorFromPalette(leds.palette, *step / 2 - radius, intensity);
+          leds[pos] = color;
+        }
       }
     }
   }
@@ -1155,10 +1230,10 @@ class Octopus: public Effect {
     // ppf("controls ptr %p,%p,%p,%p\n", speed, offsetX, offsetY, legs);
     // ppf("controls before %d,%d,%d,%d\n", *speed, *offsetX, *offsetY, *legs);
   
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128), 1, 255);
-    ui->initSlider(parentVar, "Offset X", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "Offset Y", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "Legs", leds.sharedData.write<uint8_t>(4), 1, 8);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(128), 1, 255);
+    ui->initSlider(parentVar, "Offset X", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "Offset Y", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "Legs", leds.effectData.write<uint8_t>(4), 1, 8);
     // ppf("controls %d,%d,%d,%d\n", *speed, *offsetX, *offsetY, *legs);
   }
 }; // Octopus
@@ -1171,10 +1246,10 @@ class Lissajous: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t freqX = leds.sharedData.read<uint8_t>();
-    uint8_t fadeRate = leds.sharedData.read<uint8_t>();
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    bool smooth = leds.sharedData.read<bool>(); 
+    uint8_t freqX = leds.effectData.read<uint8_t>();
+    uint8_t fadeRate = leds.effectData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    bool smooth = leds.effectData.read<bool>(); 
 
     leds.fadeToBlackBy(fadeRate);
 
@@ -1190,7 +1265,8 @@ class Lissajous: public Effect {
           //leds.setPixelColorXY(xlocn, ylocn, SEGMENT.color_from_palette(sys->now/100+i, false, PALETTE_SOLID_WRAP, 0)); // draw pixel with anti-aliasing
           unsigned palIndex = (256*locn.y) + phase/2 + (i* freqX)/64;
           // leds.setPixelColorXY(xlocn, ylocn, SEGMENT.color_from_palette(palIndex, false, PALETTE_SOLID_WRAP, 0)); // draw pixel with anti-aliasing - color follows rotation
-          leds[locn] = ColorFromPalette(leds.palette, palIndex);
+          // leds[locn] = ColorFromPalette(leds.palette, palIndex);
+          leds.setPixelColorPal(locn, palIndex);
         }
     } else
     for (int i=0; i < 256; i ++) {
@@ -1200,7 +1276,8 @@ class Lissajous: public Effect {
       locn.x = (leds.size.x < 2) ? 1 : (map(2*locn.x, 0,511, 0,2*(leds.size.x-1)) +1) /2;    // softhack007: "*2 +1" for proper rounding
       locn.y = (leds.size.y < 2) ? 1 : (map(2*locn.y, 0,511, 0,2*(leds.size.y-1)) +1) /2;    // "leds.size.y > 2" is needed to avoid div/0 in map()
       // leds.setPixelColorXY((uint8_t)xlocn, (uint8_t)ylocn, SEGMENT.color_from_palette(sys->now/100+i, false, PALETTE_SOLID_WRAP, 0));
-      leds[locn] = ColorFromPalette(leds.palette, sys->now/100+i);
+      // leds[locn] = ColorFromPalette(leds.palette, sys->now/100+i);
+      leds.setPixelColorPal(locn, sys->now/100+i);
     }
   }
   
@@ -1212,10 +1289,10 @@ class Lissajous: public Effect {
     // uint8_t *speed = ; 
     // bool *smooth = ; 
 
-    ui->initSlider(parentVar, "x frequency", leds.sharedData.write<uint8_t>(64));
-    ui->initSlider(parentVar, "fade rate", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128));
-    ui->initCheckBox(parentVar, "smooth", leds.sharedData.write<bool>(false));
+    ui->initSlider(parentVar, "x frequency", leds.effectData.write<uint8_t>(64));
+    ui->initSlider(parentVar, "fade rate", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(128));
+    ui->initCheckBox(parentVar, "smooth", leds.effectData.write<bool>(false));
   }
 }; // Lissajous
 
@@ -1227,9 +1304,9 @@ class Frizzles: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t bpm = leds.sharedData.read<uint8_t>();
-    uint8_t intensity = leds.sharedData.read<uint8_t>();
-    uint8_t blur = leds.sharedData.read<uint8_t>();
+    uint8_t bpm = leds.effectData.read<uint8_t>();
+    uint8_t intensity = leds.effectData.read<uint8_t>();
+    uint8_t blur = leds.effectData.read<uint8_t>();
 
     leds.fadeToBlackBy(16);
 
@@ -1237,7 +1314,7 @@ class Frizzles: public Effect {
       Coord3D pos = {0,0,0};
       pos.x = beatsin8(bpm/8 + i, 0, leds.size.x - 1);
       pos.y = beatsin8(intensity/8 - i, 0, leds.size.y - 1);
-      CRGB color = ColorFromPalette(leds.palette, beatsin8(12, 0, 255), 255);
+      CRGB color = ColorFromPalette(leds.palette, beatsin8(12, 0, 255));
       leds[pos] = color;
     }
     leds.blur2d(blur);
@@ -1245,9 +1322,9 @@ class Frizzles: public Effect {
 
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "BPM", leds.sharedData.write<uint8_t>(60));
-    ui->initSlider(parentVar, "intensity", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "blur", leds.sharedData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "BPM", leds.effectData.write<uint8_t>(60));
+    ui->initSlider(parentVar, "intensity", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "blur", leds.effectData.write<uint8_t>(128));
   }
 }; // Frizzles
 
@@ -1258,24 +1335,24 @@ class ScrollingText: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t font = leds.sharedData.read<uint8_t>();
-    const char * text = mdl->getValue("text"); //sharedData to be implemented!
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t font = leds.effectData.read<uint8_t>();
+    const char * text = mdl->getValue("text"); //effectData to be implemented!
 
     // text might be nullified by selecting other effects and if effect is selected, controls are run afterwards  
     // tbd: this should be removed and fx.changeFUn (setEffect) must make sure this cannot happen!!
     if (text && strlen(text)>0) {
       leds.fadeToBlackBy();
-      leds.drawText(text, 0, 0, font, CRGB::Red, - (call*speed/256));
+      leds.drawText(text, 0, 0, font, CRGB::Red, - (sys->now/25*speed/256)); //instead of call
     }
 
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initText(parentVar, "text", "StarLeds"); //sharedData to be implemented!
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128));
-    ui->initSelect(parentVar, "font", leds.sharedData.write<uint8_t>(0), false, [](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) { //varFun
-      case f_UIFun: {
+    ui->initText(parentVar, "text", "StarLight"); //effectData to be implemented!
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(128));
+    ui->initSelect(parentVar, "font", leds.effectData.write<uint8_t>(0), false, [](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) { //varFun
+      case onUI: {
         JsonArray options = ui->setOptions(var);
         options.add("4x6");
         options.add("5x8");
@@ -1296,13 +1373,14 @@ class Noise2D: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t scale = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t scale = leds.effectData.read<uint8_t>();
 
     for (int y = 0; y < leds.size.y; y++) {
       for (int x = 0; x < leds.size.x; x++) {
         uint8_t pixelHue8 = inoise8(x * scale, y * scale, sys->now / (16 - speed));
-        leds.setPixelColor(leds.XY(x, y), ColorFromPalette(leds.palette, pixelHue8));
+        // leds.setPixelColor(leds.XY(x, y), ColorFromPalette(leds.palette, pixelHue8));
+        leds.setPixelColorPal(leds.XY(x, y), pixelHue8);
       }
     }
   }
@@ -1310,18 +1388,19 @@ class Noise2D: public Effect {
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
 
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(8), 0, 15);
-    ui->initSlider(parentVar, "scale", leds.sharedData.write<uint8_t>(128), 2, 255);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(8), 0, 15);
+    ui->initSlider(parentVar, "scale", leds.effectData.write<uint8_t>(128), 2, 255);
   }
 }; //Noise2D
 
-
+//utility function
 static bool getBitValue(const byte* byteArray, size_t n) {
     size_t byteIndex = n / 8;
     size_t bitIndex = n % 8;
     uint8_t byte = byteArray[byteIndex];
     return (byte >> bitIndex) & 1;
 }
+//utility function
 static void setBitValue(byte* byteArray, size_t n, bool value) {
     size_t byteIndex = n / 8;
     size_t bitIndex = n % 8;
@@ -1361,55 +1440,70 @@ uint16_t lcm(uint16_t a, uint16_t b) {
 class GameOfLife: public Effect {
   const char * name() {return "GameOfLife";}
   uint8_t dim() {return _3D;} //supports 3D but also 2D (1D as well?)
-  const char * tags() {return "💡💫";}
+  const char * tags() {return "💫";}
 
-  void drawGrid(Leds &leds, byte *cells, CRGB bgColor, byte overlay = 0, bool drawAliveRandomColor = false, bool drawDead =false, bool blur = false) {
-    // Redraws the grid. drawAliveRandomColor is used when palettes change or new game is started drawDead is used to blur dead cells further
-    for (int x = 0; x < leds.size.x; x++) for (int y = 0; y < leds.size.y; y++) for (int z = 0; z < leds.size.z; z++){
-      if (!leds.isMapped(leds.XYZNoSpin({x,y,z}))) continue;
-      bool alive = getBitValue(cells, leds.XYZNoSpin({x,y,z}));
-      if (overlay) {
-        if (overlay == 1 && alive) leds.setPixelColor({x,y,z}, bgColor, 0);
-        else if (overlay == 2 && !alive) leds.setPixelColor({x,y,z}, bgColor);
-        continue;
+  void placePentomino(Leds &leds, byte *futureCells, bool colorByAge) {
+    byte pattern[5][2] = {{1, 0}, {0, 1}, {1, 1}, {2, 1}, {2, 2}}; // R-pentomino
+    if (!random8(5)) pattern[0][1] = 3; // 1/5 chance to use glider
+    CRGB color = ColorFromPalette(leds.palette, random8());
+    for (int attempts = 0; attempts < 100; attempts++) {
+      int x = random8(1, leds.size.x - 3);
+      int y = random8(1, leds.size.y - 5);
+      int z = random8(2) * (leds.size.z - 1);
+      bool canPlace = true;
+      for (int i = 0; i < 5; i++) {
+        int nx = x + pattern[i][0];
+        int ny = y + pattern[i][1];
+        if (getBitValue(futureCells, leds.XYZUnprojected({nx, ny, z}))) {canPlace = false; break;}
       }
-      else if (drawAliveRandomColor && alive) leds.setPixelColor({x,y,z}, ColorFromPalette(leds.palette, random8()), 0);
-      else if (drawDead && !alive) blur ? leds.setPixelColor({x,y,z}, bgColor) : leds.setPixelColor({x,y,z}, bgColor, 0);
+      if (canPlace || attempts == 99) {
+        for (int i = 0; i < 5; i++) {
+          int nx = x + pattern[i][0];
+          int ny = y + pattern[i][1];
+          setBitValue(futureCells, leds.XYZUnprojected({nx, ny, z}), true);
+          leds.setPixelColor({nx, ny, z}, colorByAge ? CRGB::Green : color, 0);
+        }
+        return;
+      }
     }
   }
 
   void loop(Leds &leds) {
-    //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    byte ruleset      = leds.sharedData.read<byte>();
-    uint8_t speed     = leds.sharedData.read<uint8_t>();
-    byte lifeChance   = leds.sharedData.read<byte>();
-    uint8_t mutation  = leds.sharedData.read<uint8_t>();
-    bool wrap         = leds.sharedData.read<bool>();
-    bool disablePause = leds.sharedData.read<bool>();
+    // UI Variables
+    bool *setup       = leds.effectData.readWrite<bool>();
+    bool *ruleChanged = leds.effectData.readWrite<bool>();
+    Coord3D bgC       = leds.effectData.read<Coord3D>();
+    byte ruleset      = leds.effectData.read<byte>();
+    uint8_t speed     = leds.effectData.read<uint8_t>();
+    byte lifeChance   = leds.effectData.read<byte>();
+    uint8_t mutation  = leds.effectData.read<uint8_t>();
+    bool wrap         = leds.effectData.read<bool>();
+    bool disablePause = leds.effectData.read<bool>();
+    bool colorByAge   = leds.effectData.read<bool>();
+    bool infinite     = leds.effectData.read<bool>();
 
-    //Binding of loop persistent values (pointers)
+    // Effect Variables
     const uint16_t dataSize = ((leds.size.x * leds.size.y * leds.size.z + 7) / 8);
-    uint16_t *gliderLength     = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *cubeGliderLength = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *oscillatorCRC    = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *spaceshipCRC     = leds.sharedData.readWrite<uint16_t>();
-    uint16_t *cubeGliderCRC    = leds.sharedData.readWrite<uint16_t>();
-    byte *cells       = leds.sharedData.readWrite<byte>(dataSize);
-    byte *futureCells = leds.sharedData.readWrite<byte>(dataSize);
-    uint16_t *generation = leds.sharedData.readWrite<uint16_t>();
-    unsigned long *step  = leds.sharedData.readWrite<unsigned long>();
-    bool *birthNumbers   = leds.sharedData.readWrite<bool>(9);
-    bool *surviveNumbers = leds.sharedData.readWrite<bool>(9);
-    byte *prevRuleset    = leds.sharedData.readWrite<byte>();
-    byte *setUp       = leds.sharedData.readWrite<byte>(); // call == 0 not working temp fix
-    CRGB *prevPalette = leds.sharedData.readWrite<CRGB>();
+    unsigned long *step        = leds.effectData.readWrite<unsigned long>();
+    uint16_t *gliderLength     = leds.effectData.readWrite<uint16_t>();
+    uint16_t *cubeGliderLength = leds.effectData.readWrite<uint16_t>();
+    uint16_t *oscillatorCRC    = leds.effectData.readWrite<uint16_t>();
+    uint16_t *spaceshipCRC     = leds.effectData.readWrite<uint16_t>();
+    uint16_t *cubeGliderCRC    = leds.effectData.readWrite<uint16_t>();
+    bool     *soloGlider       = leds.effectData.readWrite<bool>();
+    uint16_t *generation       = leds.effectData.readWrite<uint16_t>();
+    bool     *birthNumbers     = leds.effectData.readWrite<bool>(9);
+    bool     *surviveNumbers   = leds.effectData.readWrite<bool>(9);
+    CRGB     *prevPalette      = leds.effectData.readWrite<CRGB>();
+    byte     *cells            = leds.effectData.readWrite<byte>(dataSize);
+    byte     *futureCells      = leds.effectData.readWrite<byte>(dataSize);
 
-    CRGB bgColor = CRGB::Black;
+    CRGB bgColor = CRGB(bgC.x, bgC.y, bgC.z);
     CRGB color   = ColorFromPalette(leds.palette, random8()); // Used if all parents died
 
     // Start New Game of Life
-    if (call == 0  || *setUp != 123|| (*generation == 0 && *step < sys->now)) {
-      *setUp = 123; // quick fix for effect starting up
+    if (*setup || (*generation == 0 && *step < sys->now)) {
+      *setup = false;
       *prevPalette = ColorFromPalette(leds.palette, 0);
       *generation = 1;
       disablePause ? *step = sys->now : *step = sys->now + 1500;
@@ -1417,34 +1511,58 @@ class GameOfLife: public Effect {
       // Setup Grid
       memset(cells, 0, dataSize);
       for (int x = 0; x < leds.size.x; x++) for (int y = 0; y < leds.size.y; y++) for (int z = 0; z < leds.size.z; z++){
-        if (leds.projectionDimension == _3D && !leds.isMapped(leds.XYZNoSpin({x,y,z}))) continue;
-        if (random8(100) < lifeChance) setBitValue(cells, leds.XYZNoSpin({x,y,z}), true);
+        if (leds.projectionDimension == _3D && !leds.isMapped(leds.XYZUnprojected({x,y,z}))) continue;
+        if (random8(100) < lifeChance) {
+          setBitValue(cells, leds.XYZUnprojected({x,y,z}), true);
+          leds.setPixelColor({x,y,z}, bgColor, 0); // Color set in redraw loop
+        }
       }
-      memcpy(futureCells, cells, dataSize); 
-      drawGrid(leds, cells, bgColor, false, true, true, false);
+      memcpy(futureCells, cells, dataSize);
 
+      *soloGlider = false;
       // Change CRCs
       uint16_t crc = crc16((const unsigned char*)cells, dataSize);
-      *oscillatorCRC = crc;
-      *spaceshipCRC  = crc;
-      *cubeGliderCRC = crc;
+      *oscillatorCRC = crc, *spaceshipCRC = crc, *cubeGliderCRC = crc;
       *gliderLength  = lcm(leds.size.y, leds.size.x) * 4;
-      *cubeGliderLength = *gliderLength * 6; // change later for rectangular cuboid
+      *cubeGliderLength = *gliderLength * 6; // Change later for rectangular cuboid
       return;
     }
 
-    byte blendVal = leds.fixture->globalBlend; // Used for different blend mode
-    bool bgBlendMode = blendVal > 200;
-    if (*prevPalette != ColorFromPalette(leds.palette, 0)) {   // Palette changed, redraw grid
-      drawGrid(leds, cells, bgColor, false, true, true);
-      *prevPalette = ColorFromPalette(leds.palette, 0);
-    } 
-    if (*step > sys->now && !bgBlendMode) drawGrid(leds, cells, bgColor, 0, false, true, true); // Blend dead cells while paused
+    byte blur = leds.fixture->globalBlend;
+    int fadedBackground = 0;
+    if (blur > 220 && !colorByAge) { // Keep faded background if blur > 220
+      fadedBackground = bgColor.r + bgColor.g + bgColor.b + 20 + (blur-220);
+      blur -= (blur-220);
+    }
+    bool blurDead = *step > sys->now && !fadedBackground;
+    bool paletteChanged = !colorByAge && *prevPalette != ColorFromPalette(leds.palette, 0);
+
+    if (paletteChanged) *prevPalette = ColorFromPalette(leds.palette, 0);
+    // Redraw Loop
+    if (*generation <= 1 || paletteChanged || blurDead) { // Readd overlay support when implemented
+      for (int x = 0; x < leds.size.x; x++) for (int y = 0; y < leds.size.y; y++) for (int z = 0; z < leds.size.z; z++){
+        uint16_t cIndex = leds.XYZUnprojected({x,y,z}); // Current cell index (bit grid lookup)
+        uint16_t cLoc   = leds.XYZ({x,y,z});            // Current cell location (led index)
+        if (!leds.isMapped(cIndex)) continue;
+        bool alive = getBitValue(cells, cIndex);
+        CRGB cellColor = leds.getPixelColor(cLoc);
+        bool recolor = (paletteChanged || (alive && *generation == 1 && cellColor == bgColor && !random(16))); // Palette change or Initial Color
+        // Redraw alive if palette changed, spawn initial colors randomly, age alive cells while paused
+        if      (alive && recolor) leds.setPixelColor(cLoc, colorByAge ? CRGB::Green : ColorFromPalette(leds.palette, random8()), 0);
+        else if (alive && colorByAge && !*generation) leds.setPixelColor(cLoc, CRGB::Red, 248);    // Age alive cells while paused
+        // Redraw dead if palette changed, blur paused game, fade on newgame
+        if      (!alive && (paletteChanged || disablePause)) leds.setPixelColor(cLoc, bgColor, 0); // Remove blended dead cells
+        else if (!alive && blurDead)         leds.setPixelColor(cLoc, bgColor, blur);              // Blend dead cells while paused
+        else if (!alive && *generation == 1) leds.setPixelColor(cLoc, bgColor, 248);               // Fade dead on new game
+      }
+    }
 
     if (!speed || *step > sys->now || sys->now - *step < 1000 / speed) return; // Check if enough time has passed for updating
+    // if (!speed || *step > sys->now || (speed != 60 && sys->now - *step < 1000 / speed)) return; // Uncapped speed when slider maxed
 
     //Rule set for game of life
-    if (ruleset != *prevRuleset || ruleset == 0) { // Custom rulestring always parsed
+    if (*ruleChanged) {
+      *ruleChanged = false;
       String ruleString = "";
       if      (ruleset == 0) ruleString = mdl->getValue("Custom Rule String").as<String>(); //Custom
       else if (ruleset == 1) ruleString = "B3/S23";         //Conway's Game of Life
@@ -1454,8 +1572,7 @@ class GameOfLife: public Effect {
       else if (ruleset == 5) ruleString = "B3/S1234";       //Mazecentric
       else if (ruleset == 6) ruleString = "B367/S23";       //DrighLife
 
-      *prevRuleset = ruleset;
-      memset(birthNumbers, 0, sizeof(bool) * 9);
+      memset(birthNumbers,   0, sizeof(bool) * 9);
       memset(surviveNumbers, 0, sizeof(bool) * 9);
 
       //Rule String Parsing
@@ -1469,68 +1586,81 @@ class GameOfLife: public Effect {
       }
     }
     //Update Game of Life
-    bool cellChanged = false; // Detect still live and dead grids
-
+    int aliveCount = 0, deadCount = 0; // Detect solo gliders and dead grids
+    bool disableWrap = *soloGlider || *generation % 1500 == 0;
+    const int zAxis = (leds.projectionDimension == _3D) ? -1 : 0; // Avoids looping through z axis neighbors if 2D
     //Loop through all cells. Count neighbors, apply rules, setPixel
     for (int x = 0; x < leds.size.x; x++) for (int y = 0; y < leds.size.y; y++) for (int z = 0; z < leds.size.z; z++){
-      Coord3D cPos = {x, y, z}; //current cells position
-      uint16_t cIndex = leds.XYZNoSpin(cPos);
-      if (leds.projectionDimension == _3D && !leds.isMapped(leds.XYZ(x,y,z))) continue; //skip if not physical led
-      byte neighbors = 0;
-      byte colorCount = 0; //track number of valid colors
-      CRGB nColors[9];     //track up to 9 colors (3D / alt ruleset), dying cells may overwrite but this wont be used
+      Coord3D  cPos      = {x, y, z};
+      uint16_t cIndex    = leds.XYZUnprojected(cPos);
+      bool     cellValue = getBitValue(cells, cIndex);
+      if (cellValue) aliveCount++; else deadCount++;
+      if (zAxis && !leds.isMapped(cIndex)) continue; // Skip if not physical led on 3D fixtures
+      byte neighbors = 0, colorCount = 0;
+      CRGB nColors[9];
 
-      for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) for (int k = -1; k <= 1; k++) { // iterate through 3*3*3 matrix
-        if (i==0 && j==0 && k==0) continue; // ignore itself
-        Coord3D nPos = {x+i, y+j, z+k};     // neighbor position
-        if (!wrap || leds.size.z > 1 || (*generation) % 1500 == 0) { //no wrap, never wrap 3D, disable wrap every 1500 generations to prevent undetected repeats
-          if (nPos.isOutofBounds(leds.size)) continue;
-        } else { // wrap around 2D
-          if (k != 0) continue; //no z axis (wrap around only for x and y
-          nPos = (nPos + leds.size) % leds.size;
+      for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) for (int k = zAxis; k <= -zAxis; k++) {
+        if (i==0 && j==0 && k==0) continue; // Ignore itself
+        Coord3D nPos = {x+i, y+j, z+k};
+        if (nPos.isOutofBounds(leds.size)) {
+          // Wrap is disabled when unchecked, for 3D fixtures, every 1500 generations, and solo gliders
+          if (!wrap || zAxis || disableWrap) continue;
+          if (wrap) nPos = (nPos + leds.size) % leds.size; // Wrap around 3D
         }
-        uint16_t nIndex = leds.XYZNoSpin(nPos);
-        // count neighbors and store up to 9 neighbor colors
-        if (getBitValue(cells, nIndex)) { //if alive
+        uint16_t nIndex = leds.XYZUnprojected(nPos);
+        // Count neighbors and store up to 9 neighbor colors
+        if (getBitValue(cells, nIndex)) {
           neighbors++;
-          if (!getBitValue(futureCells, nIndex)) continue; //skip if parent died in this loop (color lost or blended)
-          nColors[colorCount % 9] = leds.getPixelColor(nPos);
+          if (cellValue || colorByAge) continue;           // Skip if cell is alive (color already set) or color by age (colors are not used)
+          if (!getBitValue(futureCells, nIndex)) continue; // Skip if parent died in this loop (color lost or blended)
+          CRGB nColor = leds.getPixelColor(nPos);
+          if (nColor == bgColor) continue;
+          color = nColor; // Set color to last seen color
+          nColors[colorCount % 9] = color;
           colorCount++;
         }
       }
       // Rules of Life
-      bool cellValue = getBitValue(cells, cIndex);
       if (cellValue && !surviveNumbers[neighbors]) {
         // Loneliness or Overpopulation
-        cellChanged = true;
         setBitValue(futureCells, cIndex, false);
-        leds.setPixelColor(cPos, bgColor, bgBlendMode ? blendVal - 190 : blendVal);
+        leds.setPixelColor(cPos, bgColor, blur);
       }
       else if (!cellValue && birthNumbers[neighbors]){
         // Reproduction
         setBitValue(futureCells, cIndex, true);
-        cellChanged = true;
-        CRGB randomParentColor = color; // last seen color, overwrite if colors are found
+        CRGB randomParentColor = color; // Last seen color, overwrite if colors are found
         if (colorCount) randomParentColor = nColors[random8(colorCount)];
-        if (randomParentColor == bgColor) randomParentColor = ColorFromPalette(leds.palette, random8()); // needed for tilt, pan, roll
-        if (random8(100) < mutation) randomParentColor = ColorFromPalette(leds.palette, random8());      // mutate
-        leds.setPixelColor(cPos, randomParentColor, 0);
+        if (random8(100) < mutation) randomParentColor = ColorFromPalette(leds.palette, random8());
+        leds.setPixelColor(cPos, colorByAge ? CRGB::Green : randomParentColor, 0);
+
       }
       else {
         // Blending, fade dead cells further causing blurring effect to moving cells
-        if (!cellValue && !bgBlendMode) leds.setPixelColor(cPos, bgColor);
+        if (!cellValue) {
+          if (fadedBackground) {
+              CRGB val = leds.getPixelColor(cPos);
+              if (fadedBackground < val.r + val.g + val.b) leds.setPixelColor(cPos, bgColor, blur);
+          }
+          else leds.setPixelColor(cPos, bgColor, blur);
+        }
+        if (cellValue && colorByAge) leds.setPixelColor(cPos, CRGB::Red, 248);
       }
     }
 
-    // Update cell values from futureCells
+    if (aliveCount == 5) *soloGlider = true; else *soloGlider = false;
     memcpy(cells, futureCells, dataSize);
-    // Get current crc value
     uint16_t crc = crc16((const unsigned char*)cells, dataSize);
 
     bool repetition = false;
-    if (!cellChanged || crc == *oscillatorCRC || crc == *spaceshipCRC || crc == *cubeGliderCRC) repetition = true; //check if cell changed this gen and compare previous stored crc values
+    if (!aliveCount || crc == *oscillatorCRC || crc == *spaceshipCRC || crc == *cubeGliderCRC) repetition = true;
+    if ((repetition && infinite) || (infinite && !random8(50)) || (infinite && float(aliveCount)/(aliveCount + deadCount) < 0.05)) {
+      placePentomino(leds, futureCells, colorByAge); // Place R-pentomino/Glider if infinite mode is enabled
+      memcpy(cells, futureCells, dataSize);
+      repetition = false;
+    }
     if (repetition) {
-      *generation = 0; //reset on next call
+      *generation = 0;
       disablePause ? *step = sys->now : *step = sys->now + 1000;
       return;
     }
@@ -1544,8 +1674,11 @@ class GameOfLife: public Effect {
 
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSelect(parentVar, "ruleset", leds.sharedData.write<uint8_t>(1), false, [](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) {
-      case f_UIFun: {
+    bool *setup       = leds.effectData.write<bool>(true);
+    bool *ruleChanged = leds.effectData.write<bool>(true);
+    ui->initCoord3D(parentVar, "Background Color", leds.effectData.write<Coord3D>({0,0,0}), 0, 255);
+    ui->initSelect (parentVar, "ruleset", leds.effectData.write<uint8_t>(1), false, [ruleChanged](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) {
+      case onUI: {
         JsonArray options = ui->setOptions(var);
         options.add("Custom B/S");
         options.add("Conway's Game of Life B3/S23");
@@ -1556,18 +1689,555 @@ class GameOfLife: public Effect {
         options.add("DrighLife B367/S23");
         return true;
       }
+      case onChange: {*ruleChanged = true; return true;}
       default: return false;
     }});
-    ui->initText(parentVar, "Custom Rule String", "B/S");
-    ui->initSlider(parentVar, "Game Speed (FPS)", leds.sharedData.write<uint8_t>(20), 0, 60);    
-    ui->initSlider(parentVar, "Starting Life Density", leds.sharedData.write<uint8_t>(32), 10, 90);
-    ui->initSlider(parentVar, "Mutation Chance", leds.sharedData.write<uint8_t>(2), 0, 100);    
-    ui->initCheckBox(parentVar, "Wrap", leds.sharedData.write<bool>(true));
-    ui->initCheckBox(parentVar, "Disable Pause", leds.sharedData.write<bool>(false));
+    ui->initText    (parentVar, "Custom Rule String", "B/S", UINT16_MAX, false, [ruleChanged](JsonObject var, uint8_t rowNr, uint8_t funType) { switch (funType) {
+      case onChange: {*ruleChanged = true; return true;}
+      default: return false;
+    }});
+    ui->initSlider  (parentVar, "Game Speed (FPS)",      leds.effectData.write<uint8_t>(20), 0, 100);
+    ui->initSlider  (parentVar, "Starting Life Density", leds.effectData.write<uint8_t>(32), 10, 90);
+    ui->initSlider  (parentVar, "Mutation Chance",       leds.effectData.write<uint8_t>(2), 0, 100);
+    ui->initCheckBox(parentVar, "Wrap",                  leds.effectData.write<bool>(true));
+    ui->initCheckBox(parentVar, "Disable Pause",         leds.effectData.write<bool>(false));
+    ui->initCheckBox(parentVar, "Color By Age",          leds.effectData.write<bool>(false));
+    ui->initCheckBox(parentVar, "Infinite",              leds.effectData.write<bool>(false));
   }
 }; //GameOfLife
 
-#ifdef STARLEDS_USERMOD_WLEDAUDIO
+class RubiksCube: public Effect {
+  const char * name() {return "Rubik's Cube";}
+  unsigned8     dim() {return _3D;}
+  const char * tags() {return "💫";}
+
+  struct Cube {
+      uint8_t SIZE;
+      static const uint8_t MAX_SIZE = 8;
+      using Face = std::array<std::array<uint8_t, MAX_SIZE>, MAX_SIZE>;
+      Face front;
+      Face back;
+      Face left;
+      Face right;
+      Face top;
+      Face bottom;
+
+      Cube() {
+        init(SIZE);
+      }
+      
+      void init(uint8_t cubeSize) {
+        SIZE = cubeSize;
+        for (int i = 0; i < MAX_SIZE; i++) for (int j = 0; j < MAX_SIZE; j++) {
+          front[i][j]  = 0;
+          back[i][j]   = 1;  
+          left[i][j]   = 2;  
+          right[i][j]  = 3; 
+          top[i][j]    = 4;   
+          bottom[i][j] = 5;
+        }
+      }
+
+      void rotateFace(Face& face, bool clockwise) {
+        Face temp = face;
+        if (clockwise) for (int i = 0; i < SIZE; i++) for (int j = 0; j < SIZE; j++) {
+          face[j][SIZE - 1 - i] = temp[i][j]; 
+        }  
+        else for (int i = 0; i < SIZE; i++) for (int j = 0; j < SIZE; j++) {
+          face[SIZE - 1 - j][i] = temp[i][j];
+        }
+      }
+
+      void rotateRow(int startRow, int stopRow, bool clockwise) {
+        std::array<uint8_t, MAX_SIZE> temp;
+        for (int row = startRow; row <= stopRow; row++) {
+          if (clockwise) for (int i = 0; i < SIZE; i++) {
+            temp[i]       = left[row][i];
+            left[row][i]  = front[row][i];
+            front[row][i] = right[row][i];
+            right[row][i] = back[row][i];
+            back[row][i]  = temp[i];
+          } 
+          else for (int i = 0; i < SIZE; i++) {
+            temp[i]       = left[row][i];
+            left[row][i]  = back[row][i];
+            back[row][i]  = right[row][i];
+            right[row][i] = front[row][i];
+            front[row][i] = temp[i];
+          }
+        }
+      }
+
+      void rotateColumn(int startCol, int stopCol, bool clockwise) {
+        std::array<uint8_t, MAX_SIZE> temp;
+        for (int col = startCol; col <= stopCol; col++) {
+          if (clockwise) for (int i = 0; i < SIZE; i++) {
+            temp[i]        = top[i][col];
+            top[i][col]    = front[i][col];
+            front[i][col]  = bottom[i][col];
+            bottom[i][col] = back[SIZE - 1 - i][SIZE - 1 - col];
+            back[SIZE - 1 - i][SIZE - 1 - col] = temp[i];   
+          }    
+          else for (int i = 0; i < SIZE; i++) {
+            temp[i]        = top[i][col];
+            top[i][col]    = back[SIZE - 1 - i][SIZE - 1 - col];
+            back[SIZE - 1 - i][SIZE - 1 - col] = bottom[i][col];
+            bottom[i][col] = front[i][col];
+            front[i][col]  = temp[i];
+          }
+        }
+      }
+
+      void rotateFaceLayer(bool clockwise, int startLayer, int endLayer) {
+        for (int layer = startLayer; layer <= endLayer; layer++) {
+          std::array<uint8_t, MAX_SIZE> temp;
+          for (int i = 0; i < SIZE; i++) temp[i] = clockwise ? top[SIZE - 1 - layer][i] : bottom[layer][i];
+          for (int i = 0; i < SIZE; i++) {
+            if (clockwise) {
+              top[SIZE - 1 - layer][i] = left[SIZE - 1 - i][SIZE - 1 - layer];
+              left[SIZE - 1 - i][SIZE - 1 - layer] = bottom[layer][SIZE - 1 - i];
+              bottom[layer][SIZE - 1 - i] = right[i][layer];
+              right[i][layer] = temp[i];
+            } else {
+              bottom[layer][SIZE - 1 - i] = left[SIZE - 1 - i][SIZE - 1 - layer];
+              left[SIZE - 1 - i][SIZE - 1 - layer] = top[SIZE - 1 - layer][i];
+              top[SIZE - 1 - layer][i] = right[i][layer];
+              right[i][layer] = temp[SIZE - 1 - i];
+            }
+          }
+        }
+      }
+
+      void rotateFront(bool clockwise, uint8_t width) {
+        rotateFaceLayer(clockwise, 0, width - 1);
+        rotateFace(front, clockwise);
+        if (width >= SIZE) rotateFace(back, !clockwise);
+      }
+      void rotateBack(bool clockwise, uint8_t width) {
+        rotateFaceLayer(!clockwise, SIZE - width, SIZE - 1);
+        rotateFace(back, clockwise);
+        if (width >= SIZE) rotateFace(front, !clockwise);
+      }
+      void rotateLeft(bool clockwise, uint8_t width) {
+        rotateFace(left, clockwise);
+        rotateColumn(0, width - 1, !clockwise);
+        if (width >= SIZE) rotateFace(right, !clockwise);
+      }
+      void rotateRight(bool clockwise, uint8_t width) {
+        rotateFace(right, clockwise);
+        rotateColumn(SIZE - width, SIZE - 1, clockwise);
+        if (width >= SIZE) rotateFace(left, !clockwise);
+      }
+      void rotateTop(bool clockwise, uint8_t width) {
+        rotateFace(top, clockwise);
+        rotateRow(0, width - 1, clockwise);
+        if (width >= SIZE) rotateFace(bottom, !clockwise);
+      }
+      void rotateBottom(bool clockwise, uint8_t width) {
+        rotateFace(bottom, clockwise);
+        rotateRow(SIZE - width, SIZE - 1, !clockwise);
+        if (width >= SIZE) rotateFace(top, !clockwise);
+      }
+
+      void drawCube(Leds &leds) {
+        int blendVal = 0; // remove later
+        int sizeX = max(leds.size.x-1, 1);
+        int sizeY = max(leds.size.y-1, 1);
+        int sizeZ = max(leds.size.z-1, 1);
+
+        // 3 Sided Cube Cheat add 1 to led size if "panels" missing. May affect different fixture types
+        if (leds.projectionDimension == _3D) {
+          if (!leds.isMapped(leds.XYZUnprojected({0, leds.size.y/2, leds.size.z/2})) || !leds.isMapped(leds.XYZUnprojected({leds.size.x-1, leds.size.y/2, leds.size.z/2}))) sizeX++;
+          if (!leds.isMapped(leds.XYZUnprojected({leds.size.x/2, 0, leds.size.z/2})) || !leds.isMapped(leds.XYZUnprojected({leds.size.x/2, leds.size.y-1, leds.size.z/2}))) sizeY++;
+          if (!leds.isMapped(leds.XYZUnprojected({leds.size.x/2, leds.size.y/2, 0})) || !leds.isMapped(leds.XYZUnprojected({leds.size.x/2, leds.size.y/2, leds.size.z-1}))) sizeZ++;
+        }
+
+        // Previously SIZE - 1. Cube size expanded by 2, makes edges thicker. Constrains are used to prevent out of bounds
+        const float scaleX = (SIZE + 1.0) / sizeX;
+        const float scaleY = (SIZE + 1.0) / sizeY;
+        const float scaleZ = (SIZE + 1.0) / sizeZ;
+
+        // Calculate once for optimization
+        const int halfX = sizeX / 2;
+        const int halfY = sizeY / 2;
+        const int halfZ = sizeZ / 2;
+
+        const CRGB COLOR_MAP[] = {CRGB::Red, CRGB::DarkOrange, CRGB::Blue, CRGB::Green, CRGB::Yellow, CRGB::White};
+        
+        for (int x = 0; x < leds.size.x; x++) for (int y = 0; y < leds.size.y; y++) for (int z = 0; z < leds.size.z; z++) { 
+          Coord3D led = {x, y, z};
+          if (leds.isMapped(leds.XYZUnprojected(led)) == 0) continue; // skip if not a physical LED
+
+          // Normalize the coordinates to the Rubik's cube range. Subtract 1 since cube expanded by 2
+          int normalizedX = constrain(round(x * scaleX) - 1, 0, SIZE - 1);
+          int normalizedY = constrain(round(y * scaleY) - 1, 0, SIZE - 1);
+          int normalizedZ = constrain(round(z * scaleZ) - 1, 0, SIZE - 1);
+          
+          // Calculate the distance to the closest face
+          int distX = min(x, sizeX - x);
+          int distY = min(y, sizeY - y);
+          int distZ = min(z, sizeZ - z);
+          int dist  = min(distX, min(distY, distZ));
+
+          if      (dist == distZ && z < halfZ)  leds.setPixelColor(led, COLOR_MAP[front[normalizedY][normalizedX]], blendVal);
+          else if (dist == distX && x < halfX)  leds.setPixelColor(led, COLOR_MAP[left[normalizedY][SIZE - 1 - normalizedZ]], blendVal);
+          else if (dist == distY && y < halfY)  leds.setPixelColor(led, COLOR_MAP[top[SIZE - 1 - normalizedZ][normalizedX]], blendVal);
+          else if (dist == distZ && z >= halfZ) leds.setPixelColor(led, COLOR_MAP[back[normalizedY][SIZE - 1 - normalizedX]], blendVal);
+          else if (dist == distX && x >= halfX) leds.setPixelColor(led, COLOR_MAP[right[normalizedY][normalizedZ]], blendVal);
+          else if (dist == distY && y >= halfY) leds.setPixelColor(led, COLOR_MAP[bottom[normalizedZ][normalizedX]], blendVal);
+        }
+      }
+  };
+
+  struct Move {
+      uint8_t face;      // 0-5 (3 bits)
+      uint8_t width;     // 0-7 (3 bits)
+      uint8_t direction; // 0 or 1 (1 bit)
+  };
+
+  Move createRandomMoveStruct(uint8_t cubeSize, uint8_t prevFace) {
+      Move move;
+      do {
+        move.face = random(6);
+      } while (move.face/2 == prevFace/2);
+      move.width     = random(cubeSize-2);
+      move.direction = random(2);
+      return move;
+  }
+
+  uint8_t packMove(Move move) {
+      uint8_t packed = (move.face & 0b00000111) | 
+                      ((move.width << 3) & 0b00111000) | 
+                      ((move.direction << 6) & 0b01000000);
+      return packed;
+  }
+
+  Move unpackMove(uint8_t packedMove) {
+      Move move;
+      move.face      = packedMove & 0b00000111;
+      move.width     = (packedMove >> 3) & 0b00000111;
+      move.direction = (packedMove >> 6) & 0b00000001;
+      return move;
+  }
+
+  void loop(Leds &leds) {
+    // UI control variables
+    bool   *setup      = leds.effectData.readWrite<bool>();
+    uint8_t speed      = leds.effectData.read<uint8_t>();
+    uint8_t cubeSize   = leds.effectData.read<uint8_t>();
+    bool randomTurning = leds.effectData.read<bool>();
+
+    // Effect variables
+    unsigned long *step    = leds.effectData.readWrite<unsigned long>();
+    Cube    *cube          = leds.effectData.readWrite<Cube>();
+    uint8_t *moveList      = leds.effectData.readWrite<byte>(100);
+    uint8_t *moveIndex     = leds.effectData.readWrite<byte>();
+    uint8_t *prevFaceMoved = leds.effectData.readWrite<byte>();
+
+    typedef void (Cube::*RotateFunc)(bool direction, uint8_t width);
+    const RotateFunc rotateFuncs[] = {&Cube::rotateFront, &Cube::rotateBack, &Cube::rotateLeft, &Cube::rotateRight, &Cube::rotateTop, &Cube::rotateBottom};
+    
+    if (*setup && sys->now > *step || *step - 1000 > sys->now) { // *step - 1000 > sys->now temp fix for default on boot
+      *step = sys->now + 1000;
+      *setup = false;
+      cube->init(cubeSize);
+      uint8_t moveCount = cubeSize * 10 + random(20);
+      // Randomly turn entire cube
+      for (int x = 0; x < 3; x++) {
+        if (random(2)) cube->rotateRight(1, cubeSize);
+        if (random(2)) cube->rotateTop  (1, cubeSize);
+        if (random(2)) cube->rotateFront(1, cubeSize);
+      }
+      // Generate scramble
+      for (int i = 0; i < moveCount; i++) {
+        Move move = createRandomMoveStruct(cubeSize, *prevFaceMoved);
+        *prevFaceMoved = move.face;
+        moveList[i] = packMove(move);
+
+        (cube->*rotateFuncs[move.face])(move.direction, move.width + 1);
+      }
+
+      *moveIndex = moveCount - 1;
+
+      cube->drawCube(leds);
+    }
+
+    if (!speed || sys->now - *step < 1000 / speed || sys->now < *step) return;
+
+    Move move = randomTurning ? createRandomMoveStruct(cubeSize, *prevFaceMoved) : unpackMove(moveList[*moveIndex]);
+
+    (cube->*rotateFuncs[move.face])(!move.direction, move.width + 1);
+      
+    cube->drawCube(leds);
+    
+    if (!randomTurning && *moveIndex == 0) {
+      *step = sys->now + 3000;
+      *setup = true;
+      return;
+    }
+    if (!randomTurning) (*moveIndex)--;
+    *step = sys->now;
+  }
+
+  void controls(Leds &leds, JsonObject parentVar) {
+    Effect::controls(leds, parentVar);
+    bool *setup = leds.effectData.write<bool>(true);
+    ui->initSlider  (parentVar, "Turns Per Second", leds.effectData.write<uint8_t>(1), 0, 20);   
+    ui->initSlider  (parentVar, "Cube Size",        leds.effectData.write<uint8_t>(2), 1, 8, false, [setup] (JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) {
+      case onChange: {*setup = true; return true;}
+      default: return false;
+    }});
+    ui->initCheckBox(parentVar, "Random Turning", leds.effectData.write<bool>(false), false, [setup] (JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) {
+      case onChange: {if (!mdl->getValue("Random Turning")) *setup = true; return true;}
+      default: return false;
+    }});
+  }
+};
+
+class ParticleTest: public Effect {
+  const char * name() {return "Particle Test";}
+  unsigned8     dim() {return _3D;}
+  const char * tags() {return "💫🧭";}
+  
+  struct Particle {
+    float x, y, z;
+    float vx, vy, vz;
+    CRGB color;
+
+    void update() {
+      x += vx;
+      y += vy;
+      z += vz;
+    }
+    void revert() {
+      x -= vx;
+      y -= vy;
+      z -= vz;
+    }
+
+    Coord3D toCoord3DRounded() {
+      return Coord3D({int(round(x)), int(round(y)), int(round(z))});
+    }
+
+    void updatePositionandDraw(Leds &leds, int particleIndex = 0, bool debugPrint = false) {
+      if (debugPrint) ppf("Particle %d: Pos: %f, %f, %f Velocity: %f, %f, %f\n", particleIndex, x, y, z, vx, vy, vz);
+
+      Coord3D prevPos = toCoord3DRounded();
+      if (debugPrint) ppf("     PrevPos: %d, %d, %d\n", prevPos.x, prevPos.y, prevPos.z);
+      
+      update();
+      Coord3D newPos = toCoord3DRounded();
+      if (debugPrint) ppf("     NewPos: %d, %d, %d\n", newPos.x, newPos.y, newPos.z);
+
+      if (newPos == prevPos) return; // Skip if no change in position
+
+      leds.setPixelColor(prevPos, CRGB::Black, 0); // Clear previous position
+
+      if (leds.isMapped(leds.XYZUnprojected(newPos)) && !newPos.isOutofBounds(leds.size) && leds.getPixelColor(newPos) == CRGB::Black) {
+        if (debugPrint) ppf("     New Pos was mapped and particle placed\n");
+        leds.setPixelColor(newPos, color, 0); // Set new position
+        return;
+      }
+      
+      // Particle is not mapped, find nearest mapped pixel
+      Coord3D nearestMapped = prevPos;                          // Set nearest to previous position
+      unsigned nearestDist = newPos.distanceSquared(prevPos);   // Set distance to previous position
+      int diff = 0;                                             // If distance the same check how many coordinates are different (larger is better)
+      bool changed = false;
+
+      if (debugPrint) ppf("     %d, %d, %d, Not Mapped! Nearest: %d, %d, %d dist: %d diff: %d\n", newPos.x, newPos.y, newPos.z, nearestMapped.x, nearestMapped.y, nearestMapped.z, nearestDist, diff);
+      
+      // Check neighbors for nearest mapped pixel. This should be changed to check neighbors with similar velocity
+      for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) for (int k = -1; k <= 1; k++) {
+        Coord3D testPos = newPos + Coord3D({i, j, k});
+        if (testPos == prevPos)                         continue; // Skip current position
+        if (!leds.isMapped(leds.XYZUnprojected(testPos)))    continue; // Skip if not mapped
+        if (testPos.isOutofBounds(leds.size))           continue; // Skip out of bounds
+        if (leds.getPixelColor(testPos) != CRGB::Black) continue; // Skip if already colored by another particle
+        unsigned dist = testPos.distanceSquared(newPos);
+        int differences = (prevPos.x != testPos.x) + (prevPos.y != testPos.y) + (prevPos.z != testPos.z);
+        if (debugPrint) ppf ("     TestPos: %d %d %d Dist: %d Diff: %d", testPos.x, testPos.y, testPos.z, dist, differences);
+        if (debugPrint) ppf ("     New Velocities: %d, %d, %d\n", (testPos.x - prevPos.x), (testPos.y - prevPos.y), (testPos.z - prevPos.z));
+        if (dist < nearestDist || (dist == nearestDist && differences >= diff)) {
+          nearestDist = dist;
+          nearestMapped = testPos;
+          diff = differences;
+          changed = true;
+        }
+      }
+      if (changed) { // Change velocity to move towards nearest mapped pixel. Update position.
+        if (newPos.x != nearestMapped.x) vx = constrain(nearestMapped.x - prevPos.x, -1, 1);
+        if (newPos.y != nearestMapped.y) vy = constrain(nearestMapped.y - prevPos.y, -1, 1);
+        if (newPos.z != nearestMapped.z) vz = constrain(nearestMapped.z - prevPos.z, -1, 1);
+
+        x = nearestMapped.x; 
+        y = nearestMapped.y; 
+        z = nearestMapped.z;
+        
+        if (debugPrint) ppf("     New Position: %d, %d, %d New Velocity: %f, %f, %f\n", nearestMapped.x, nearestMapped.y, nearestMapped.z, vx, vy, vz);
+      }
+      else {
+        // No valid position found, revert to previous position
+        // Find which direction is causing OoB / not mapped and set velocity to 0
+        Coord3D testing = toCoord3DRounded();
+        revert();
+        // change X val
+        testing.x = newPos.x;
+        if (testing.isOutofBounds(leds.size) || !leds.isMapped(leds.XYZUnprojected(testing))) vx = 0;
+        // change Y val
+        testing = toCoord3DRounded();
+        testing.y = newPos.y;
+        if (testing.isOutofBounds(leds.size) || !leds.isMapped(leds.XYZUnprojected(testing))) vy = 0;
+        // change Z val
+        testing = toCoord3DRounded();
+        testing.z = newPos.z;
+        if (testing.isOutofBounds(leds.size) || !leds.isMapped(leds.XYZUnprojected(testing))) vz = 0;
+        
+        if (debugPrint) ppf("     No valid position found, reverted. Velocity Updated\n");
+        if (debugPrint) ppf("     New Pos: %f, %f, %f Velo: %f, %f, %f\n", x, y, z, vx, vy, vz);
+      }
+
+      leds.setPixelColor(toCoord3DRounded(), color, 0); // Set new position
+    }
+  };
+
+  void loop(Leds &leds) {
+    // UI Variables
+    bool   *setup        = leds.effectData.readWrite<bool>();
+    uint8_t speed        = leds.effectData.read<uint8_t>();
+    uint8_t numParticles = leds.effectData.read<uint8_t>();
+    bool barriers        = leds.effectData.read<bool>();
+    #ifdef STARBASE_USERMOD_MPU6050
+      bool gyro = leds.effectData.read<bool>();
+    #else
+      bool gyro = false;
+    #endif
+    bool randomGravity = leds.effectData.read<bool>();
+    uint8_t gravityChangeInterval = leds.effectData.read<uint8_t>();
+    // bool debugPrint    = leds.effectData.read<bool>();
+    bool debugPrint = false;
+
+    // Effect Variables
+    Particle *particles       = leds.effectData.readWrite<Particle>(255);
+    unsigned long *step       = leds.effectData.readWrite<unsigned long>();
+    unsigned long *gravUpdate = leds.effectData.readWrite<unsigned long>();
+    float *gravity = leds.effectData.readWrite<float>(3);
+
+    if (*setup) {
+      ppf("Setting Up Particles\n");
+      *setup = false;
+      leds.fill_solid(CRGB::Black, true);
+
+      if (barriers) {
+        // create a 2 pixel thick barrier around middle y value with gaps
+        for (int x = 0; x < leds.size.x; x++) for (int z = 0; z < leds.size.z; z++) {
+          if (!random8(5)) continue;
+          leds.setPixelColor({x, leds.size.y/2, z}, CRGB::White, 0);
+          leds.setPixelColor({x, leds.size.y/2 - 1, z}, CRGB::White, 0);
+        }
+      }
+
+      for (int index = 0 ; index < numParticles; index++) {
+        Coord3D rPos; 
+        int attempts = 0; 
+        do { // Get random mapped position that isn't colored (infinite loop if small fixture size and high particle count)
+          rPos = {random8(leds.size.x), random8(leds.size.y), random8(leds.size.z)};
+          attempts++;
+        } while ((!leds.isMapped(leds.XYZUnprojected(rPos)) || leds.getPixelColor(rPos) != CRGB::Black) && attempts < 1000);
+        // rPos = {1,1,0};
+        particles[index].x = rPos.x;
+        particles[index].y = rPos.y;
+        particles[index].z = rPos.z;
+
+        particles[index].vx = (random8() / 256.0f) * 2.0f - 1.0f;
+        particles[index].vy = (random8() / 256.0f) * 2.0f - 1.0f;
+        if (leds.projectionDimension == _3D) particles[index].vz = (random8() / 256.0f) * 2.0f - 1.0f;
+        else particles[index].vz = 0;
+
+        particles[index].color = ColorFromPalette(leds.palette, random8());
+        Coord3D initPos = particles[index].toCoord3DRounded();
+        leds.setPixelColor(initPos, particles[index].color, 0);
+      }
+      ppf("Particles Set Up\n");
+      *step = sys->now;
+    }
+
+    if (!speed || sys->now - *step < 1000 / speed) return; // Not enough time passed
+
+    float gravityX, gravityY, gravityZ; // Gravity if using gyro or random gravity
+
+    #ifdef STARBASE_USERMOD_MPU6050
+    if (gyro) {
+      gravity[0] = -mpu6050->gravityVector.x;
+      gravity[1] =  mpu6050->gravityVector.z; // Swap Y and Z axis
+      gravity[2] = -mpu6050->gravityVector.y;
+
+      if (leds.projectionDimension == _2D) { // Swap back Y and Z axis set Z to 0
+        gravity[1] = -gravity[2];
+        gravity[2] = 0;
+      }
+    }
+    #endif
+
+    if (randomGravity) {
+      if (sys->now - *gravUpdate > gravityChangeInterval * 1000) {
+        *gravUpdate = sys->now;
+        float scale = 5.0f;
+        // Generate Perlin noise values and scale them
+        gravity[0] = (inoise8(*step, 0, 0) / 128.0f - 1.0f) * scale;
+        gravity[1] = (inoise8(0, *step, 0) / 128.0f - 1.0f) * scale;
+        gravity[2] = (inoise8(0, 0, *step) / 128.0f - 1.0f) * scale;
+
+        gravity[0] = constrain(gravity[0], -1.0f, 1.0f);
+        gravity[1] = constrain(gravity[1], -1.0f, 1.0f);
+        gravity[2] = constrain(gravity[2], -1.0f, 1.0f);
+
+        if (leds.projectionDimension == _2D) gravity[2] = 0;
+        // ppf("Random Gravity: %f, %f, %f\n", gravity[0], gravity[1], gravity[2]);
+      }
+    }
+
+    for (int index = 0; index < numParticles; index++) {
+      if (gyro || randomGravity) { // Lerp gravity towards gyro or random gravity if enabled
+        float lerpFactor = .75;
+        particles[index].vx += (gravity[0] - particles[index].vx) * lerpFactor;
+        particles[index].vy += (gravity[1] - particles[index].vy) * lerpFactor; // Swap Y and Z axis
+        particles[index].vz += (gravity[2] - particles[index].vz) * lerpFactor;
+      }
+      particles[index].updatePositionandDraw(leds, index, debugPrint);  
+    }
+
+    *step = sys->now;
+  }
+
+  void controls(Leds &leds, JsonObject parentVar) {
+    Effect::controls(leds, parentVar);
+    bool *setup = leds.effectData.write<bool>(true);
+    ui->initSlider  (parentVar, "Speed", leds.effectData.write<uint8_t>(1), 0, 30);
+    ui->initSlider  (parentVar, "Number of Particles", leds.effectData.write<uint8_t>(10), 1, 255, false, [setup] (JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) {
+      case onChange: {*setup = true; return true;}
+      default: return false;
+    }});
+    ui->initCheckBox(parentVar, "Barriers", leds.effectData.write<bool>(0) , false, [setup] (JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) {
+      case onChange: {*setup = true; return true;}
+      default: return false;
+    }});
+    #ifdef STARBASE_USERMOD_MPU6050
+      ui->initCheckBox(parentVar, "Gyro", leds.effectData.write<bool>(0));
+    #endif
+    ui->initCheckBox(parentVar, "Random Gravity",          leds.effectData.write<bool>(1));
+    ui->initSlider  (parentVar, "Gravity Change Interval", leds.effectData.write<uint8_t>(5), 1, 10);
+    // ui->initCheckBox(parentVar, "Debug Print",             leds.effectData.write<bool>(0));
+  }
+};
+
+
+
+
+
+
+
+#ifdef STARLIGHT_USERMOD_WLEDAUDIO
 
 class Waverly: public Effect {
   const char * name() {return "Waverly";}
@@ -1576,11 +2246,11 @@ class Waverly: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t amplification = leds.sharedData.read<uint8_t>();
-    uint8_t sensitivity = leds.sharedData.read<uint8_t>();
-    bool noClouds = leds.sharedData.read<bool>();
-    // bool soundPressure = leds.sharedData.read<bool>();
-    // bool agcDebug = leds.sharedData.read<bool>();
+    uint8_t amplification = leds.effectData.read<uint8_t>();
+    uint8_t sensitivity = leds.effectData.read<uint8_t>();
+    bool noClouds = leds.effectData.read<bool>();
+    // bool soundPressure = leds.effectData.read<bool>();
+    // bool agcDebug = leds.effectData.read<bool>();
 
     leds.fadeToBlackBy(amplification);
     // if (agcDebug && soundPressure) soundPressure = false;                 // only one of the two at any time
@@ -1594,23 +2264,22 @@ class Waverly: public Effect {
       uint16_t thisMax = min(map(thisVal, 0, 512, 0, leds.size.y), (long)leds.size.x);
 
       for (pos.y = 0; pos.y < thisMax; pos.y++) {
-        CRGB color = ColorFromPalette(leds.palette, map(pos.y, 0, thisMax, 250, 0), 255, LINEARBLEND);
+        CRGB color = ColorFromPalette(leds.palette, map(pos.y, 0, thisMax, 250, 0));
         if (!noClouds)
           leds.addPixelColor(pos, color);
         leds.addPixelColor(leds.XY((leds.size.x - 1) - pos.x, (leds.size.y - 1) - pos.y), color);
       }
     }
     leds.blur2d(16);
-
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "Amplification", leds.sharedData.write<uint8_t>(128));
-    ui->initSlider(parentVar, "Sensitivity", leds.sharedData.write<uint8_t>(128));
-    ui->initCheckBox(parentVar, "No Clouds", leds.sharedData.write<bool>(false));
-    // ui->initCheckBox(parentVar, "Sound Pressure", leds.sharedData.write<bool>(false));
-    // ui->initCheckBox(parentVar, "AGC debug", leds.sharedData.write<bool>(false));
+    ui->initSlider(parentVar, "Amplification", leds.effectData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "Sensitivity", leds.effectData.write<uint8_t>(128));
+    ui->initCheckBox(parentVar, "No Clouds", leds.effectData.write<bool>(false));
+    // ui->initCheckBox(parentVar, "Sound Pressure", leds.effectData.write<bool>(false));
+    // ui->initCheckBox(parentVar, "AGC debug", leds.effectData.write<bool>(false));
   }
 }; //Waverly
 
@@ -1625,14 +2294,14 @@ class GEQEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t fadeOut = leds.sharedData.read<uint8_t>();
-    uint8_t ripple = leds.sharedData.read<uint8_t>();
-    bool colorBars = leds.sharedData.read<bool>();
-    bool smoothBars = leds.sharedData.read<bool>();
+    uint8_t fadeOut = leds.effectData.read<uint8_t>();
+    uint8_t ripple = leds.effectData.read<uint8_t>();
+    bool colorBars = leds.effectData.read<bool>();
+    bool smoothBars = leds.effectData.read<bool>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    uint16_t *previousBarHeight = leds.sharedData.readWrite<uint16_t>(leds.size.x); //array
-    unsigned long *step = leds.sharedData.readWrite<unsigned long>();
+    uint16_t *previousBarHeight = leds.effectData.readWrite<uint16_t>(leds.size.x); //array
+    unsigned long *step = leds.effectData.readWrite<unsigned long>();
 
     const int NUM_BANDS = NUM_GEQ_CHANNELS ; // map(SEGMENT.custom1, 0, 255, 1, 16);
 
@@ -1700,7 +2369,7 @@ class GEQEffect: public Effect {
       }
 
       if ((ripple > 0) && (previousBarHeight[pos.x] > 0) && (previousBarHeight[pos.x] < leds.size.y))  // WLEDMM avoid "overshooting" into other segments
-        leds.setPixelColor(leds.XY(pos.x, leds.size.y - previousBarHeight[pos.x]), CHSV( gHue, 255, 255)); // take gHue color for the time being
+        leds.setPixelColor(leds.XY(pos.x, leds.size.y - previousBarHeight[pos.x]), CHSV( sys->now/50, 255, 255)); // take sys->now/50 color for the time being
 
       if (rippleTime && previousBarHeight[pos.x]>0) previousBarHeight[pos.x]--;    //delay/ripple effect
 
@@ -1709,10 +2378,10 @@ class GEQEffect: public Effect {
 
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "fadeOut", leds.sharedData.write<uint8_t>(255));
-    ui->initSlider(parentVar, "ripple", leds.sharedData.write<uint8_t>(128));
-    ui->initCheckBox(parentVar, "colorBars", leds.sharedData.write<bool>(false));
-    ui->initCheckBox(parentVar, "smoothBars", leds.sharedData.write<bool>(true));
+    ui->initSlider(parentVar, "fadeOut", leds.effectData.write<uint8_t>(255));
+    ui->initSlider(parentVar, "ripple", leds.effectData.write<uint8_t>(128));
+    ui->initCheckBox(parentVar, "colorBars", leds.effectData.write<bool>(false));
+    ui->initCheckBox(parentVar, "smoothBars", leds.effectData.write<bool>(true));
 
     // Nice an effect can register it's own DMX channel, but not a fan of repeating the range and type of the param
 
@@ -1722,13 +2391,152 @@ class GEQEffect: public Effect {
     //     e131mod->patchChannel(3, "fadeOut", 255); // TODO: add constant for name
     //     e131mod->patchChannel(4, "ripple", 255);
     //     for (JsonObject childVar: mdl->findVar("e131Tbl")["n"].as<JsonArray>()) {
-    //       ui->callVarFun(childVar, UINT8_MAX, f_UIFun);
+    //       ui->callVarFun(childVar, UINT8_MAX, onUI);
     //     }
     //   }
 
     // #endif
   }
 }; //GEQ
+
+//by @Troy
+class LaserGEQEffect: public Effect {
+  const char * name() {return "laserGEQ";}
+  uint8_t dim() {return _2D;}
+  const char * tags() {return "♫💫";}
+
+  void setup(Leds &leds) {
+    leds.fadeToBlackBy(16);
+  }
+
+  void loop(Leds &leds) {
+    //Binding of controls. Keep before binding of vars and keep in same order as in controls()
+    uint8_t fadeOut = leds.effectData.read<uint8_t>();
+
+    uint16_t *projector = leds.effectData.readWrite<uint16_t>();
+    int8_t *projector_dir = leds.effectData.readWrite<int8_t>();;
+
+    *projector += *projector_dir;
+    if (*projector > leds.size.x) *projector = leds.size.x; //init
+    if (*projector == leds.size.x) *projector_dir = -1;
+    if (*projector == 0) *projector_dir = 1;
+
+    if (fadeOut > 250) {
+      leds.fill_solid(CRGB::Black);
+    } else {
+      leds.fadeToBlackBy(fadeOut);
+    }
+
+    const int NUM_BANDS = 16; // map(SEGMENT.custom1, 0, 255, 1, 16);
+
+    uint8_t heights[16] = { 0 };
+
+    for (int i=0; i<16; i++) {
+      heights[i] = map(wledAudioMod->fftResults[i],0,255,0,leds.size.y-10);
+    }
+
+    for (int i=0; i<8; i++) {
+
+      uint16_t colorIndex = map(leds.size.x/16*i, 0, leds.size.x-1, 0, 255);
+      CRGB ledColor = ColorFromPalette(leds.palette, colorIndex);
+
+      int linex = i*(leds.size.x/16);
+
+      if (heights[i] > 1) {
+
+        if (linex < *projector) {
+          for (int y = 0; y <= heights[i]; y++) {
+            leds.drawLine(linex+(leds.size.x/16)-1,leds.size.y-y-1,*projector,0, blend(ledColor, CRGB::Black, 32));
+          } 
+        }
+
+        if (linex > *projector) {
+          for (int y = 0; y <= heights[i]; y++) {
+            leds.drawLine(linex           ,leds.size.y-y-1,*projector,0, blend(ledColor, CRGB::Black, 32));
+          } 
+        }
+
+      }
+
+    }
+
+    for (int i=15; i>7; i--) {
+
+      uint16_t colorIndex = map(leds.size.x/16*i, 0, leds.size.x-1, 0, 255);
+      CRGB ledColor = ColorFromPalette(leds.palette, colorIndex);
+
+      int linex = i*(leds.size.x/16);
+
+      if (heights[i] > 1) {
+
+        if (linex < *projector) {
+          for (int y = 0; y <= heights[i]; y++) {
+            leds.drawLine(linex+(leds.size.x/16)-1,leds.size.y-y-1,*projector,0, blend(ledColor, CRGB::Black, 32));
+          } 
+        }
+
+        if (linex > *projector) {
+          for (int y = 0; y <= heights[i]; y++) {
+            leds.drawLine(linex           ,leds.size.y-y-1,*projector,0, blend(ledColor, CRGB::Black, 32));
+          } 
+        }
+      }
+    }
+
+    for (int i=0; i<8; i++) {
+
+      uint16_t colorIndex = map(leds.size.x/16*i, 0, leds.size.x-1, 0, 255);
+      CRGB ledColor = ColorFromPalette(leds.palette, colorIndex);
+
+      int linex = i*(leds.size.x/16);
+
+      if (heights[i] > 1) {
+        for (int x=linex; x<=linex+(leds.size.x/16)-1;x++) {
+          leds.drawLine(x,            leds.size.y-heights[i]-2,*projector,0, blend(ledColor, CRGB::Black, 128)); // top perspective
+        }
+      }
+
+    }
+
+    for (int i=15; i>7; i--) {
+
+      uint16_t colorIndex = map(leds.size.x/16*i, 0, leds.size.x-1, 0, 255);
+      CRGB ledColor = ColorFromPalette(leds.palette, colorIndex);
+
+      int linex = i*(leds.size.x/16);
+
+      if (heights[i] > 1) {
+        for (int x=linex; x<=linex+(leds.size.x/16)-1;x++) {
+          leds.drawLine(x,            leds.size.y-heights[i]-2,*projector,0, blend(ledColor, CRGB::Black, 128)); // top perspective
+        }
+      }
+
+    }
+
+    for (int i=0; i<16; i++) {
+
+      uint8_t colorIndex = map(leds.size.x/16*i, 0, leds.size.x-1, 0, 255);
+      CRGB ledColor = ColorFromPalette(leds.palette, colorIndex);
+
+      int linex = i*(leds.size.x/16);
+
+      if (heights[i] > 1) {
+        for (int x=linex+1; x<linex+(leds.size.x/16)-1;x++) { 
+          leds.drawLine(x,leds.size.y-2,x,leds.size.y-heights[i]-2, blend(ledColor, CRGB::Black, 32)); // front fill
+        }
+        leds.drawLine(linex,            leds.size.y-1,linex,leds.size.y-heights[i]-1,ledColor); // left side
+        leds.drawLine(linex+(leds.size.x/16)-1,leds.size.y-1,linex+(leds.size.x/16)-1,leds.size.y-heights[i]-1,ledColor); // right side
+        leds.drawLine(linex,            leds.size.y-heights[i]-2,linex+(leds.size.x/16)-1,leds.size.y-heights[i]-2,ledColor); // top
+        leds.drawLine(linex,            leds.size.y-1,linex+(leds.size.x/16)-1,leds.size.y-1,ledColor); // bottom
+      }
+    }
+  }
+
+  void controls(Leds &leds, JsonObject parentVar) {
+    Effect::controls(leds, parentVar);
+    ui->initSlider(parentVar, "fadeOut", leds.effectData.write<uint8_t>(255));
+  }
+}; //LaserGEQEffect
 
 class FunkyPlank: public Effect {
   const char * name() {return "Funky Plank";}
@@ -1741,11 +2549,11 @@ class FunkyPlank: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t num_bands = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t num_bands = leds.effectData.read<uint8_t>();
 
     //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    uint8_t *aux0 = leds.sharedData.readWrite<uint8_t>();
+    uint8_t *aux0 = leds.effectData.readWrite<uint8_t>();
 
     uint8_t secondHand = (speed < 255) ? (micros()/(256-speed)/500 % 16) : 0;
     if ((speed > 254) || (*aux0 != secondHand)) {   // WLEDMM allow run run at full speed
@@ -1774,8 +2582,8 @@ class FunkyPlank: public Effect {
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(255));
-    ui->initSlider(parentVar, "bands", leds.sharedData.write<uint8_t>(NUM_GEQ_CHANNELS), 1, NUM_GEQ_CHANNELS);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(255));
+    ui->initSlider(parentVar, "bands", leds.effectData.write<uint8_t>(NUM_GEQ_CHANNELS), 1, NUM_GEQ_CHANNELS);
   }
 }; //FunkyPlank
 
@@ -1793,8 +2601,8 @@ class RipplesEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t interval = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
+    uint8_t interval = leds.effectData.read<uint8_t>();
 
     float ripple_interval = 1.3f * (interval/128.0f);
 
@@ -1807,14 +2615,14 @@ class RipplesEffect: public Effect {
         uint32_t time_interval = sys->now/(100 - speed)/((256.0f-128.0f)/20.0f);
         pos.y = floor(leds.size.y/2.0f + sinf(d/ripple_interval + time_interval) * leds.size.y/2.0f); //between 0 and leds.size.y
 
-        leds[pos] = CHSV( gHue + random8(64), 200, 255);// ColorFromPalette(leds.palette,call, bri, LINEARBLEND);
+        leds[pos] = CHSV( sys->now/50 + random8(64), 200, 255);// ColorFromPalette(leds.palette,call, bri);
       }
     }
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(50), 0, 99);
-    ui->initSlider(parentVar, "interval", leds.sharedData.write<uint8_t>(128));
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(50), 0, 99);
+    ui->initSlider(parentVar, "interval", leds.effectData.write<uint8_t>(128));
   }
 };
 
@@ -1825,7 +2633,7 @@ class SphereMoveEffect: public Effect {
 
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
+    uint8_t speed = leds.effectData.read<uint8_t>();
 
     leds.fill_solid(CRGB::Black);
 
@@ -1845,7 +2653,7 @@ class SphereMoveEffect: public Effect {
                 uint16_t d = distance(pos.x, pos.y, pos.z, origin.x, origin.y, origin.z);
 
                 if (d>diameter && d<diameter+1) {
-                  leds[pos] = CHSV( gHue + random8(64), 200, 255);// ColorFromPalette(leds.palette,call, bri, LINEARBLEND);
+                  leds[pos] = CHSV( sys->now/50 + random8(64), 200, 255);// ColorFromPalette(leds.palette,call, bri);
                 }
             }
         }
@@ -1853,7 +2661,7 @@ class SphereMoveEffect: public Effect {
   }
   
   void controls(Leds &leds, JsonObject parentVar) {
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(50), 0, 99);
+    ui->initSlider(parentVar, "speed", leds.effectData.write<uint8_t>(50), 0, 99);
   }
 }; // SphereMove3DEffect
 
@@ -2008,14 +2816,26 @@ public:
     //   ppf("Size of %s is %d\n", "AudioRings", sizeof(AudioRings));
     // #endif
   }
+class PixelMapEffect: public Effect {
+  const char * name() {return "PixelMap";}
+  uint8_t dim() {return _3D;}
+  const char * tags() {return "💫";}
 
   void loop(Leds &leds) {
-    leds.sharedData.loop(); //sets the sharedData pointer back to 0 so loop effect can go through it
-    effects[leds.fx%effects.size()]->loop(leds);
+    //Binding of controls. Keep before binding of vars and keep in same order as in controls()
+    uint8_t x = leds.effectData.read<uint8_t>();
+    uint8_t y = leds.effectData.read<uint8_t>();
+    uint8_t z = leds.effectData.read<uint8_t>();
 
-    call++;
+    leds.fill_solid(CRGB::Black);
 
-    EVERY_N_MILLISECONDS( 20 ) { gHue++; } // slowly cycle the "base color" through the rainbow
+    Coord3D pos = {x, y, z};
+    leds[pos] = CHSV( sys->now/50 + random8(64), 255, 255);// ColorFromPalette(leds.palette,call, bri);
   }
-
-};
+  
+  void controls(Leds &leds, JsonObject parentVar) {
+    ui->initSlider(parentVar, "x", leds.effectData.write<uint8_t>(0), 0, leds.size.x - 1);
+    ui->initSlider(parentVar, "y", leds.effectData.write<uint8_t>(0), 0, leds.size.y - 1);
+    ui->initSlider(parentVar, "z", leds.effectData.write<uint8_t>(0), 0, leds.size.z - 1);
+  }
+}; // PixelMap

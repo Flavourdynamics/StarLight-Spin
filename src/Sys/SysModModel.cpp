@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModModel.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -37,10 +37,10 @@ void SysModModel::setup() {
   parentVar["s"] = true; //setup
 
   ui->initButton(parentVar, "saveModel", false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setComment(var, "Write to model.json");
       return true;
-    case f_ChangeFun:
+    case onChange:
       doWriteModel = true;
       return true;
     default: return false;
@@ -49,18 +49,18 @@ void SysModModel::setup() {
   #ifdef STARBASE_DEVMODE
 
   ui->initCheckBox(parentVar, "showObsolete", &doShowObsolete, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setComment(var, "Show in UI (refresh)");
       return true;
     default: return false;
   }});
 
   ui->initButton(parentVar, "deleteObsolete", false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Delete obsolete variables");
       ui->setComment(var, "🚧");
       return true;
-    // case f_ChangeFun:
+    // case onChange:
     //   model->to<JsonArray>(); //create
     //   if (files->readObjectFromFile("/model.json", model)) {//not part of success...
     //   }
@@ -71,8 +71,7 @@ void SysModModel::setup() {
   #endif //STARBASE_DEVMODE
 }
 
-  void SysModModel::loop() {
-  // SysModule::loop();
+void SysModModel::loop20ms() {
 
   if (!cleanUpModelDone) { //do after all setups
     cleanUpModelDone = true;
@@ -211,19 +210,20 @@ void SysModModel::findVars(const char * property, bool value, FindFun fun, JsonA
   }
 }
 
-void SysModModel::varToValues(JsonObject var, JsonArray row) {
+//currently not used
+// void SysModModel::varToValues(JsonObject var, JsonArray row) {
 
-    //add value for each child
-    // JsonArray row = rows.add<JsonArray>();
-    for (JsonObject childVar : var["n"].as<JsonArray>()) {
-      print->printJson("fxTbl childs", childVar);
-      row.add(childVar["value"]);
+//     //add value for each child
+//     // JsonArray row = rows.add<JsonArray>();
+//     for (JsonObject childVar : var["n"].as<JsonArray>()) {
+//       print->printJson("varToValues childs", childVar);
+//       row.add(childVar["value"]);
 
-      if (!childVar["n"].isNull()) {
-        varToValues(childVar, row.add<JsonArray>());
-      }
-    }
-}
+//       if (!childVar["n"].isNull()) {
+//         varToValues(childVar, row.add<JsonArray>());
+//       }
+//     }
+// }
 
 bool checkDash(JsonObject var) {
   if (var["dash"])
@@ -244,7 +244,7 @@ bool SysModModel::callVarChangeFun(JsonObject var, unsigned8 rowNr, bool init) {
       instances->changedVarsQueue.push_back(var); //tbd: check value arrays / rowNr is working
   }
 
-  //if var is bound by pointer, set the pointer value before calling changeFun
+  //if var is bound by pointer, set the pointer value before calling onChange
   if (!var["p"].isNull()) {
     JsonVariant value;
     int pointer;
@@ -287,16 +287,16 @@ bool SysModModel::callVarChangeFun(JsonObject var, unsigned8 rowNr, bool init) {
       Coord3D *valuePointer = (Coord3D *)pointer;
       if (valuePointer != nullptr) {
         *valuePointer = value;
-        ppf("pointer set16 %s: v:%d (p:%p) (r:%d v:%s p:%d)\n", varID(var), *valuePointer, valuePointer, rowNr, var["value"].as<String>().c_str(), pointer);
+        // ppf("pointer set coord3D %s: v:%d,%d,%d (p:%p) (r:%d v:%s p:%d)\n", varID(var), (*valuePointer).x, (*valuePointer).y, (*valuePointer).z, valuePointer, rowNr, var["value"].as<String>().c_str(), pointer);
       }
       else
-        ppf("dev pointer set16 %s: v:%d (p:%p) (r:%d v:%s p:%d)\n", varID(var), *valuePointer, valuePointer, rowNr, var["value"].as<String>().c_str(), pointer);
+        ppf("dev pointer set coord3D %s: v:%d,%d,%d (p:%p) (r:%d v:%s p:%d)\n", varID(var), (*valuePointer).x, (*valuePointer).y, (*valuePointer).z, valuePointer, rowNr, var["value"].as<String>().c_str(), pointer);
     }
     else
       ppf("dev pointer of type %s not supported yet\n", var["type"].as<String>().c_str());
   }
 
-  return ui->callVarFun(var, rowNr, f_ChangeFun);
+  return ui->callVarFun(var, rowNr, onChange);
 
   // web->sendResponseObject();
 }  

@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModModel.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -119,6 +119,10 @@ struct Coord3D {
     Coord3D delta = (*this-rhs);
     return sqrt((delta.x)*(delta.x) + (delta.y)*(delta.y) + (delta.z)*(delta.z));
   }
+  unsigned distanceSquared(Coord3D rhs) {
+    Coord3D delta = (*this-rhs);
+    return (delta.x)*(delta.x) + (delta.y)*(delta.y) + (delta.z)*(delta.z);
+  }
   bool isOutofBounds(Coord3D rhs) {
     return x < 0 || y < 0 || z < 0 || x >= rhs.x || y >= rhs.y || z >= rhs.z;
   }
@@ -190,7 +194,7 @@ public:
 
   SysModModel();
   void setup();
-  void loop();
+  void loop20ms();
   
   //scan all vars in the model and remove vars where var["o"] is negative or positive, if ro then remove ro values
   void cleanUpModel(JsonObject parent = JsonObject(), bool oPos = true, bool ro = false);
@@ -346,10 +350,10 @@ public:
   JsonObject findParentVar(const char * id, JsonObject parent = JsonObject());
   void findVars(const char * id, bool value, FindFun fun, JsonArray parent = JsonArray());
 
-  //recursively add values in  a variant
-  void varToValues(JsonObject var, JsonArray values);
+  //recursively add values in  a variant, currently not used
+  // void varToValues(JsonObject var, JsonArray values);
 
-  //sends dash var change to udp (if init),  sets pointer if pointer var and run changeFun
+  //sends dash var change to udp (if init),  sets pointer if pointer var and run onChange
   bool callVarChangeFun(JsonObject var, unsigned8 rowNr = UINT8_MAX, bool init = false);
 
   //pseudo VarObject: public JsonObject functions

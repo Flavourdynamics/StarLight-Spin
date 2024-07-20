@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModPins.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -11,6 +11,9 @@
 
 #pragma once
 #include "SysModule.h"
+#include "SysModPrint.h"
+
+#include "Wire.h" //for I2S
 
 #define pinTypeIO 0
 #define pinTypeReadOnly 1
@@ -32,7 +35,7 @@ public:
 
   SysModPins();
   void setup();
-  void loop();
+  void loop20ms();
 
   void allocatePin(unsigned8 pinNr, const char * owner, const char * details);
   void deallocatePin(unsigned8 pinNr, const char * owner);
@@ -112,6 +115,15 @@ public:
 
     return pinType;
   }
+
+  bool initI2S () {
+    //tbd: set pins in ui!!
+    allocatePin(21, "Pins", "I2S SDA");
+    allocatePin(22, "Pins", "I2S SCL");
+    bool success = Wire.begin(21,22);
+    ppf("initI2S Wire begin %s\n", success?"success":"failure");
+    return success;
+  }
 };
 
-extern SysModPins *pins;
+extern SysModPins *pinsM;

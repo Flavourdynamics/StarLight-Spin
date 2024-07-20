@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModUI.cpp
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -23,7 +23,7 @@ void SysModUI::setup() {
   parentVar = initSysMod(parentVar, name, 4101);
 
   JsonObject tableVar = initTable(parentVar, "vlTbl", nullptr, true, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Variable loops");
       ui->setComment(var, "Loops initiated by a variable");
       return true;
@@ -31,36 +31,35 @@ void SysModUI::setup() {
   }});
 
   initText(tableVar, "vlVar", nullptr, 32, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
+    case onSetValue:
       for (forUnsigned8 rowNr = 0; rowNr < loopFunctions.size(); rowNr++)
         mdl->setValue(var, JsonString(loopFunctions[rowNr].var["id"], JsonString::Copied), rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Name");
       return true;
     default: return false;
   }});
 
   initNumber(tableVar, "vlLoopps", UINT16_MAX, 0, 999, true, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_ValueFun:
+    case onSetValue:
       for (forUnsigned8 rowNr = 0; rowNr < loopFunctions.size(); rowNr++)
         mdl->setValue(var, loopFunctions[rowNr].counter, rowNr);
       return true;
-    case f_UIFun:
+    case onUI:
       ui->setLabel(var, "Loops p s");
       return true;
     default: return false;
   }});
 }
 
-void SysModUI::loop() {
-  // SysModule::loop();
+void SysModUI::loop20ms() { //never more then 50 times a second!
 
   for (VarLoop &varLoop : loopFunctions) {
     if (millis() - varLoop.lastMillis >= varLoop.var["interval"].as<int>()) {
       varLoop.lastMillis = millis();
 
-      varLoop.loopFun(varLoop.var, 1, f_LoopFun); //rowNr..
+      varLoop.loopFun(varLoop.var, 1, onLoop); //rowNr..
 
       varLoop.counter++;
       // ppf("%s %u %u %d %d\n", varLoop->mdl->varID(var), varLoop->lastMillis, millis(), varLoop->interval, varLoop->counter);
@@ -70,7 +69,7 @@ void SysModUI::loop() {
 
 void SysModUI::loop1s() {
   //if something changed in vloops
-  callVarFun("vlLoopps");
+  callVarFun("vlLoopps", UINT8_MAX, onSetValue); //set the value (WIP)
   for (VarLoop &varLoop : loopFunctions)
     varLoop.counter = 0;
 }
@@ -127,7 +126,7 @@ JsonObject SysModUI::initVar(JsonObject parent, const char * id, const char * ty
         var["fun"] = varFunctions.size()-1;
       // }
       
-      if (varFun(var, UINT8_MAX, f_LoopFun)) { //test run if it supports loop
+      if (varFun(var, UINT8_MAX, onLoop)) { //test run if it supports loop
         //no need to check if already in...
         VarLoop loop;
         loop.loopFun = varFun;
@@ -183,19 +182,19 @@ void SysModUI::processJson(JsonVariant json) {
             web->sendResponseObject(); //async response //trigger receiveData->delRow
           }
 
-          if (callVarFun(var, rowNr, pair.key() == "addRow"?f_AddRow:f_DelRow)) {
+          if (callVarFun(var, rowNr, pair.key() == "addRow"?onAddRow:onDeleteRow)) {
             web->sendResponseObject(); //async response
           }
         }
         json.remove(key); //key processed we don't need the key in the response
       }
-      else if (pair.key() == "uiFun") { //JsonString can do ==
+      else if (pair.key() == "onUI") { //JsonString can do ==
         //find the select var and collect it's options...
         if (value.is<JsonArray>()) { //should be
           for (JsonVariant varInArray: value.as<JsonArray>()) {
             JsonObject var = mdl->findVar(varInArray); //value is the id
             if (!var.isNull()) {
-              callVarFun(var, UINT8_MAX, f_UIFun);
+              callVarFun(var, UINT8_MAX, onUI);
               //sendDataWs done in caller of processJson
             }
             else

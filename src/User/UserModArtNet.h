@@ -1,10 +1,10 @@
 /*
-   @title     StarLeds
+   @title     StarLight
    @file      UserModArtNet.h
-   @date      20240114
-   @repo      https://github.com/MoonModules/StarLeds
-   @Authors   https://github.com/MoonModules/StarLeds/commits/main
-   @Copyright © 2024 Github StarLeds Commit Authors
+   @date      20240720
+   @repo      https://github.com/MoonModules/StarLight
+   @Authors   https://github.com/MoonModules/StarLight/commits/main
+   @Copyright © 2024 Github StarLight Commit Authors
    @license   GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
    @license   For non GPL-v3 usage, commercial licenses must be purchased. Contact moonmodules@icloud.com
 */
@@ -31,7 +31,7 @@ public:
     parentVar = ui->initUserMod(parentVar, name, 6100);
 
     ui->initIP(parentVar, "artInst", UINT16_MAX, false, [this](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-      case f_UIFun: {
+      case onUI: {
         ui->setLabel(var, "Instance");
         ui->setComment(var, "Instance to send data");
         JsonArray options = ui->setOptions(var);
@@ -51,7 +51,7 @@ public:
           }
         }
         return true; }
-      case f_ChangeFun: {
+      case onChange: {
         uint8_t value = var["value"]; //ip[3] chosen
         for (InstanceInfo &instance : instances->instances) {
           if (instance.ip[3] == value) {
@@ -87,8 +87,6 @@ public:
 
     WiFiUDP ddpUdp;
 
-    int bri = mdl->getValue("bri");
-
     for (size_t currentPacket = 0; currentPacket < packetCount; currentPacket++) {
 
       if (sequenceNumber > 255) sequenceNumber = 0;
@@ -119,10 +117,10 @@ public:
 
       for (size_t i = 0; i < eff->fixture.nrOfLeds; i++) {
         CRGB pixel = eff->fixture.ledsP[i];
-        ddpUdp.write(scale8(pixel.r, bri)); // R
-        ddpUdp.write(scale8(pixel.g, bri)); // G
-        ddpUdp.write(scale8(pixel.b, bri)); // B
-        // if (isRGBW) ddpUdp.write(scale8(buffer[bufferOffset++], bri)); // W
+        ddpUdp.write(scale8(pixel.r, fix->bri)); // R
+        ddpUdp.write(scale8(pixel.g, fix->bri)); // G
+        ddpUdp.write(scale8(pixel.b, fix->bri)); // B
+        // if (isRGBW) ddpUdp.write(scale8(buffer[bufferOffset++], fix->bri)); // W
       }
 
       if (!ddpUdp.endPacket()) {

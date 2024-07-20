@@ -1,7 +1,7 @@
 /*
    @title     StarBase
    @file      SysModPrint.h
-   @date      20240411
+   @date      20240720
    @repo      https://github.com/ewowi/StarBase, submit changes to this file as PRs to ewowi/StarBase
    @Authors   https://github.com/ewowi/StarBase/commits/main
    @Copyright © 2024 Github StarBase Commit Authors
@@ -58,7 +58,7 @@ void SysModPrint::setup() {
 
   //default to Serial
   ui->initSelect(parentVar, "pOut", 1, false, [](JsonObject var, unsigned8 rowNr, unsigned8 funType) { switch (funType) { //varFun
-    case f_UIFun:
+    case onUI:
     {
       ui->setLabel(var, "Output");
 
@@ -76,8 +76,7 @@ void SysModPrint::setup() {
   ui->initTextArea(parentVar, "log");
 }
 
-void SysModPrint::loop() {
-  // Module::loop();
+void SysModPrint::loop20ms() {
   if (!setupsDone) setupsDone = true;
 }
 
