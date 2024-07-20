@@ -1867,57 +1867,61 @@ class SphereMoveEffect: public Effect {
 #define stackUnsigned16 unsigned
 #define stackUnsigned32 unsigned
 */
-class ExampleEffect: public Effect {
+class Praxis: public Effect {
 public:
-  const char * name() {return "ExampleEffect";}
+  const char * name() {return "Praxis";}
   uint8_t dim() {return _2D;}
-  const char * tags() {return "♪♫⚡💡💫";}
-
-  struct Map_t {
-    uint8_t angle;
-    uint8_t radius;
-  };
+  const char * tags() {return "🌌";}
 
   void setup(Leds &leds) {
     leds.fill_solid(CRGB::Black);
   }
-
+  
   void loop(Leds &leds) {
     //Binding of controls. Keep before binding of vars and keep in same order as in controls()
-    uint8_t speed = leds.sharedData.read<uint8_t>();
-    uint8_t legs = leds.sharedData.read<uint8_t>();
-    Coord3D testCoord3D = leds.sharedData.read<Coord3D>();
+    uint8_t huespeed = leds.sharedData.read<uint8_t>();
+    uint8_t macro_mutator_freq = leds.sharedData.read<uint8_t>(); // 14, -125, -1
+    uint8_t macro_mutator_min = leds.sharedData.read<uint8_t>();
+    uint8_t macro_mutator_max = leds.sharedData.read<uint8_t>();
+    uint8_t micro_mutator_freq = leds.sharedData.read<uint8_t>(); // 2, 550, 900
+    uint8_t micro_mutator_min = leds.sharedData.read<uint8_t>();
+    uint8_t micro_mutator_max = leds.sharedData.read<uint8_t>();
+    uint8_t saturation = leds.sharedData.read<uint8_t>();
+    uint16_t macro_mutator = beatsin16(macro_mutator_freq, -macro_mutator_min, -macro_mutator_max, sys->now); // , sys->now
+    uint16_t micro_mutator = beatsin16(micro_mutator_freq, micro_mutator_min*3, micro_mutator_max*3, sys->now); // , sys->now
 
-    //binding of loop persistent values (pointers) tbd: aux0,1,step etc can be renamed to meaningful names
-    Map_t    *rMap = leds.sharedData.readWrite<Map_t>(leds.size.x * leds.size.y); //array
-    uint8_t *offsX = leds.sharedData.readWrite<uint8_t>();
-    uint16_t *aux0 = leds.sharedData.readWrite<uint16_t>();
-    unsigned long *step = leds.sharedData.readWrite<unsigned long>();
-
-    unsigned long beatTimer = sys->now - *step;
+    // Loop persistent values
+    uint8_t huebase = sys->now/(255 - huespeed);
 
     Coord3D pos = {0,0,0};
 
-    for (pos.x = 0; pos.x < leds.size.x; pos.x++) {
-      for (pos.y = 0; pos.y < leds.size.y; pos.y++) {
-        CRGB color = ColorFromPalette(leds.palette, random8());
-        leds[pos] = color; // or setPixelColor(pos, color);
+    for (pos.x = 0; pos.x < (leds.size.x+1)/2; pos.x++){   // Halved for mirroring
+      for(pos.y = 0; pos.y < (leds.size.y+1)/2; pos.y++){
+        //uint8_t hue = huebase + ((pos.x+pos.y)*(250-macro_mutator)/5) + ((pos.x+pos.y*macro_mutator*pos.x)/micro_mutator);
+        uint8_t hue = ((pos.x+pos.y)*(250-macro_mutator)/5) + ((pos.x+pos.y*macro_mutator*pos.x)/micro_mutator);
+        CRGB colour = ColorFromPalette(leds.palette, hue, saturation, LINEARBLEND);
+        colour = blend(leds.getPixelColor(leds.XY(pos.x, pos.y)), colour, 4);
+        leds[leds.XY(pos.x, pos.y)] = colour;
+        leds[leds.XY(pos.x, leds.size.y - 1 - pos.y)] = colour;
+        leds[leds.XY(leds.size.x - 1 - pos.x, pos.y)] = colour;
+        leds[leds.XY(leds.size.x - 1 - pos.x, leds.size.y - 1 - pos.y)] = colour;
+        matrix.drawPixelRGB888(pos.x, pos.y, huebase*pos.x, huebase*pos.y, 0);
       }
     }
-    if (leds.projectionDimension == _3D)
-      //do something special for 3D projections/fixtures
-      if (!leds.isMapped(leds.XYZ(1,2,3)))
-        //do something special if there is no physical led in the current projection
-        ppf("test %d\n", beatTimer);
   }
 
   void controls(Leds &leds, JsonObject parentVar) {
     Effect::controls(leds, parentVar);
-    ui->initSlider(parentVar, "speed", leds.sharedData.write<uint8_t>(128), 1, 255);
-    ui->initSlider(parentVar, "legs", leds.sharedData.write<uint8_t>(4), 1, 8);
-    ui->initCoord3D(parentVar, "testCoord3D", leds.sharedData.write<Coord3D>({1,2,3}));
+    ui->initSlider(parentVar, "Hue Speed", leds.sharedData.write<uint8_t>(3), 1, 254); // (14), 1, 255)
+    ui->initSlider(parentVar, "Macro Mutator Freq", leds.sharedData.write<uint8_t>(14), 1, 255); // (14), 1, 255)
+    ui->initSlider(parentVar, "Macro Mutator Min", leds.sharedData.write<uint8_t>(125), 0, 255); // (125), 1, 2500)
+    ui->initSlider(parentVar, "Macro Mutator Max", leds.sharedData.write<uint8_t>(255), 0, 255); // (1), 1, 2500)
+    ui->initSlider(parentVar, "Micro Mutator Freq", leds.sharedData.write<uint8_t>(2), 0, 255); // (128), 1, 255)
+    ui->initSlider(parentVar, "Micro Mutator Min", leds.sharedData.write<uint8_t>(100), 0, 255); // (550), 0, 2500)
+    ui->initSlider(parentVar, "Micro Mutator Max", leds.sharedData.write<uint8_t>(200), 0, 255); // (900), 0, 2500)
+    ui->initSlider(parentVar, "Saturation", leds.sharedData.write<uint8_t>(255), 0, 255);
   }
-}; // ExampleEffect
+}; // Praxis
 
 class Effects {
 public:
@@ -1956,7 +1960,7 @@ public:
 
     //2D StarLeds
     effects.push_back(new Lines);
-    effects.push_back(new ExampleEffect);
+    effects.push_back(new Praxis);
     //2D WLED
     effects.push_back(new BlackHole);
     effects.push_back(new DNA);
